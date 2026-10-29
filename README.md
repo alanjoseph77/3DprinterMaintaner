@@ -17,6 +17,11 @@ Web app for sharing two Bambu Lab printers (P1S, P2S).
 The first registered user becomes admin. Set the UPI id and rates under Admin > Settings.
 Data lives in `data/app.db`, uploads in `uploads/`.
 
+## Live printer status
+
+Admin > Printer connections: enter each printer's IP, serial and LAN access code (LAN Mode on). The site then shows
+online/idle/printing, progress, temperatures, and marks the running job done/failed automatically (read-only MQTT).
+
 ## Printer control
 
 `src/printer.js` is a mock. Real start (MQTT + FTPS over LAN, needs LAN mode / Developer Mode on the P1S and P2S)

@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const { db, settings } = require('./db');
 const slice = require('./slice');
 const driver = require('./printer');
+const bambu = require('./bambu');
 
 fs.mkdirSync('uploads', { recursive: true });
 const upload = multer({ dest: 'uploads/', limits: { fileSize: 100 * 1024 * 1024 } });
@@ -49,8 +50,16 @@ app.post('/api/logout', (req, res) => { const t = /token=([^;]+)/.exec(req.heade
 app.get('/api/me', (req, res) => res.json(pub(req.user)));
 
 // ---- printers / settings ----
-app.get('/api/printers', auth, (_req, res) => res.json(db.prepare(`
-  SELECT p.id,p.name,p.status,(SELECT COUNT(*) FROM jobs j WHERE j.printer_id=p.id AND j.status IN ('queued','printing')) queue FROM printers p`).all()));
+app.get('/api/printers', auth, (req, res) => res.json(db.prepare(`
+  SELECT p.id,p.name,p.status,p.ip,p.serial,(p.access_code IS NOT NULL AND p.access_code<>'') has_code,
+    (SELECT COUNT(*) FROM jobs j WHERE j.printer_id=p.id AND j.status IN ('queued','printing')) queue FROM printers p`).all()
+  .map(p => ({ ...p, ip: req.user.is_admin ? p.ip : undefined, serial: req.user.is_admin ? p.serial : undefined, live: bambu.info(p.id) }))));
+app.post('/api/admin/printers/:id', auth, admin, wrap((req, res) => {
+  const { ip, serial, access_code } = req.body;
+  db.prepare('UPDATE printers SET ip=?,serial=?,access_code=COALESCE(NULLIF(?,\'\'),access_code) WHERE id=?').run((ip || '').trim(), (serial || '').trim(), (access_code || '').trim(), req.params.id);
+  bambu.connect(db.prepare('SELECT * FROM printers WHERE id=?').get(req.params.id));
+  res.json({});
+}));
 app.get('/api/settings', auth, (req, res) => { const s = settings(); res.json(req.user.is_admin ? s : { rate_per_gram: s.rate_per_gram, rate_per_hour: s.rate_per_hour, min_price: s.min_price }); });
 
 // ---- jobs ----
@@ -147,5 +156,6 @@ app.get('/api/admin/stats', auth, admin, (_req, res) => res.json(db.prepare(`
   FROM printers p LEFT JOIN jobs j ON j.printer_id=p.id AND j.status='done' GROUP BY p.id`).all()));
 
 const port = process.env.PORT || 3000;
+if (require.main === module) bambu.start();
 if (require.main === module) app.listen(port, () => console.log(`Print Lab running: http://localhost:${port}`)).on('error', e => { console.error('Could not start server:', e.message); process.exit(1); });
 module.exports = app;

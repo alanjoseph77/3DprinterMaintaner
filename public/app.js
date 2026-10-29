@@ -8,6 +8,8 @@ const api = async (url, body, isForm) => {
 };
 const tag = s => `<span class="tag ${s}">${s.replace('_', ' ')}</span>`;
 const money = n => '₹' + Number(n || 0).toFixed(2);
+const liveTag = p => !p.live ? tag(p.status) + ' <span class="mute">not linked</span>' : p.live.online ? tag(p.status) : '<span class="tag failed">offline</span>';
+const liveInfo = p => !p.live || !p.live.online ? '' : `<div class="mute" style="font-size:13px;margin-top:4px">${p.live.state === 'RUNNING' ? `${p.live.percent ?? '?'}% · ${p.live.remaining_min ?? '?'} min left<br>` : ''}Nozzle ${Math.round(p.live.nozzle ?? 0)}° · Bed ${Math.round(p.live.bed ?? 0)}°${p.live.file ? '<br>' + esc(p.live.file) : ''}</div>`;
 const dur = m => m ? `${Math.floor(m / 60)}h ${Math.round(m % 60)}m` : '–';
 const run = fn => async (...a) => { try { await fn(...a); } catch (e) { alert(e.message); } };
 
@@ -36,7 +38,7 @@ async function printView() {
   const [printers, s] = await Promise.all([api('/api/printers'), api('/api/settings')]);
   const csd = me.type === 'csd';
   $('#view').innerHTML = `<div class="card"><h2>1. Choose printer</h2><div class="grid">${printers.map(p =>
-    `<div class="pr ${printerSel == p.id ? 'sel' : ''}" onclick="pickPrinter(${p.id},this)"><b>${esc(p.name)}</b><br>${tag(p.status)} <span class="mute">${p.queue} in queue</span></div>`).join('')}</div></div>
+    `<div class="pr ${printerSel == p.id ? 'sel' : ''}" onclick="pickPrinter(${p.id},this)"><b>${esc(p.name)}</b><br>${liveTag(p)} <span class="mute">${p.queue} in queue</span>${liveInfo(p)}</div>`).join('')}</div></div>
     <div class="card"><h2>2. Upload file</h2>
     <p class="mute">Use a <b>sliced .3mf</b> from Bambu Studio for exact filament use (.stl gives a rough estimate).<br>
     Rate: ${money(s.rate_per_gram)}/g + ${money(s.rate_per_hour)}/hour, minimum ${money(s.min_price)}. ${csd ? '<b>CSD members print free.</b>' : ''}</p>
@@ -84,7 +86,7 @@ window.act = run(async (id, a) => { const note = a === 'reject' ? prompt('Reason
 async function histView() { $('#view').innerHTML = `<div class="card"><h2>My history</h2>${jobsTable(await api('/api/jobs'))}</div>`; }
 
 async function adminView() {
-  const [jobs, users, stats, s] = await Promise.all([api('/api/admin/jobs'), api('/api/admin/users'), api('/api/admin/stats'), api('/api/settings')]);
+  const [printers, jobs, users, stats, s] = await Promise.all([api('/api/printers'), api('/api/admin/jobs'), api('/api/admin/users'), api('/api/admin/stats'), api('/api/settings')]);
   const waiting = jobs.filter(j => j.status === 'payment_submitted').length;
   $('#view').innerHTML = `<div class="card"><h2>Totals (completed prints)</h2><div class="tbl"><table><tr><th>Printer</th><th>Jobs</th><th>Filament g</th><th>CSD g (free)</th><th>Hours</th><th>Money</th></tr>
     ${stats.map(r => `<tr><td>${r.printer}</td><td>${r.jobs}</td><td>${r.grams}</td><td>${r.csd_grams}</td><td>${r.hours}</td><td>${money(r.money)}</td></tr>`).join('')}</table></div></div>
@@ -92,9 +94,15 @@ async function adminView() {
     <div class="card"><h2>Users</h2><div class="tbl"><table><tr><th>Name</th><th>Email</th><th>Type</th><th>Admin</th></tr>${users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td>
       <td><select onchange="setUser(${u.id},{type:this.value})"><option ${u.type === 'individual' ? 'selected' : ''}>individual</option><option ${u.type === 'csd' ? 'selected' : ''}>csd</option></select></td>
       <td><input type="checkbox" ${u.is_admin ? 'checked' : ''} onchange="setUser(${u.id},{is_admin:this.checked})"></td></tr>`).join('')}</table></div></div>
+    <div class="card"><h2>Printer connections</h2><p class="mute">Turn on LAN Mode on the printer. Access code, IP and serial are on the printer's network/device screen.</p>
+    ${printers.map(p => `<div class="row"><b style="width:50px">${esc(p.name)}</b>${liveTag(p)}
+      <input id="ip${p.id}" placeholder="IP" value="${esc(p.ip || '')}" size="14"><input id="sn${p.id}" placeholder="Serial" value="${esc(p.serial || '')}" size="18">
+      <input id="ac${p.id}" placeholder="${p.has_code ? 'Access code (saved)' : 'Access code'}" size="12"><button onclick="savePrinter(${p.id})">Connect</button>
+      ${p.live?.error ? `<span class="err">${esc(p.live.error)}</span>` : ''}</div>`).join('')}</div>
     <div class="card"><h2>Settings</h2><div class="row">${Object.keys(s).map(k => `<label class="mute">${k}<br><input id="s_${k}" value="${esc(s[k])}"></label>`).join('')}</div>
     <button onclick="saveSettings(${JSON.stringify(Object.keys(s)).replace(/"/g, '&quot;')})">Save</button></div>`;
 }
+window.savePrinter = run(async id => { await api('/api/admin/printers/' + id, { ip: $('#ip' + id).value, serial: $('#sn' + id).value, access_code: $('#ac' + id).value }); setTimeout(adminView, 3000); alert('Saved. Connecting...'); });
 window.setUser = run(async (id, b) => { await api('/api/admin/users/' + id, b); });
 window.saveSettings = run(async keys => { await api('/api/admin/settings', Object.fromEntries(keys.map(k => [k, $('#s_' + k).value]))); alert('Saved'); });
 
