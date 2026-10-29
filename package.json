@@ -18,6 +18,7 @@
   },
   "homepage": "https://github.com/alanjoseph77/3DprinterMaintaner#readme",
   "dependencies": {
+    "basic-ftp": "^6.2.3",
     "better-sqlite3": "12.11.1",
     "express": "^5.3.0",
     "fflate": "^0.8.3",

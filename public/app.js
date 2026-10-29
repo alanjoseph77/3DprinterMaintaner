@@ -22,10 +22,11 @@ function render() {
   if (!me) return authView();
   app.innerHTML = `<div class="tabs"><button class="${tab === 'print' ? '' : 'alt'}" onclick="go('print')">New print</button>
     <button class="${tab === 'live' ? '' : 'alt'}" onclick="go('live')">Live printers</button>
+    <button class="${tab === 'log' ? '' : 'alt'}" onclick="go('log')">Printer log</button>
     <button class="${tab === 'hist' ? '' : 'alt'}" onclick="go('hist')">My history</button>
     ${me.is_admin ? `<button class="${tab === 'admin' ? '' : 'alt'}" onclick="go('admin')">Admin</button>` : ''}</div><div id="view"></div>`;
   clearInterval(window.liveTimer);
-  ({ print: printView, live: liveView, hist: histView, admin: adminView })[tab]();
+  ({ print: printView, live: liveView, log: logView, hist: histView, admin: adminView })[tab]();
 }
 window.go = t => { tab = t; render(); };
 window.logout = run(async () => { await api('/api/logout', {}); me = null; render(); });
@@ -110,6 +111,15 @@ async function liveView() {
   const draw = async () => { const ps = await api('/api/printers'); const el = $('#live'); if (el) el.innerHTML = ps.map(liveCard).join(''); };
   $('#view').innerHTML = '<div id="live" class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))"></div><p class="mute">Updates every 5 seconds.</p>';
   await draw(); window.liveTimer = setInterval(() => draw().catch(() => {}), 5000);
+}
+const took = (a, b) => { if (!a) return '–'; const m = ((b ? new Date(b.replace(' ', 'T') + 'Z') : new Date()) - new Date(a.replace(' ', 'T') + 'Z')) / 60000; return m < 1 ? '<1m' : dur(m); };
+async function logView() {
+  const jobs = await api('/api/printer-log');
+  $('#view').innerHTML = `<div class="card"><h2>Printer log <span class="mute" style="font-size:13px">everything the printers ran</span></h2>
+    ${jobs.length ? `<div class="tbl"><table><tr><th></th><th>Started</th><th>Printer</th><th>File</th><th>Who</th><th>Filament</th><th>Took</th><th>Status</th></tr>${jobs.map(j => `<tr>
+      <td>${thumb(j)}</td><td>${esc((j.started || j.created).slice(0, 16))}</td><td>${esc(j.printer)}</td><td>${esc(j.file_name)}</td>
+      <td>${esc(j.user_name)}${j.source === 'printer' ? ' <span class="tag">direct</span>' : ''}</td><td>${j.grams ? j.grams.toFixed(1) + ' g' : '–'}</td>
+      <td>${took(j.started, j.finished)}</td><td>${tag(j.status)} <span class="mute">${esc(j.note || '')}</span></td></tr>`).join('')}</table></div>` : '<p class="mute">Nothing printed yet.</p>'}</div>`;
 }
 async function histView() { $('#view').innerHTML = `<div class="card"><h2>My history</h2>${jobsTable(await api('/api/jobs'))}</div>`; }
 

@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS jobs(
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 `);
 
+try { db.exec("ALTER TABLE jobs ADD COLUMN source TEXT DEFAULT 'app'"); } catch {}
 const defaults = { rate_per_gram: '5', rate_per_hour: '10', min_price: '10', upi_id: 'yourname@upi', payee: 'Print Lab', csd_gram_limit: '0' };
 for (const [k, v] of Object.entries(defaults))
   db.prepare('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)').run(k, v);

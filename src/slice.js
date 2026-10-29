@@ -38,7 +38,8 @@ function fromStl(buf) {
   return { grams, minutes: grams * 2.5, exact: 0 };
 }
 
-module.exports = (path, name) => {
+module.exports.from3mf = from3mf;
+module.exports = Object.assign((path, name) => {
   const buf = fs.readFileSync(path);
   return /\.3mf$/i.test(name) ? from3mf(buf) : fromStl(buf);
-};
+}, { from3mf });

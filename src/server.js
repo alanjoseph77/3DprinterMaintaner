@@ -99,8 +99,11 @@ app.post('/api/jobs/:id/confirm', auth, mine, wrap((req, res) => {
   setStatus(req.job.id, req.job.user_type === 'csd' ? 'queued' : 'pending_payment');
   res.json({});
 }));
-app.get('/api/jobs/:id/thumb', auth, mine, (req, res) => {
-  const f = `uploads/thumb_${req.job.id}.png`;
+// every logged-in user may see pictures of prints that ran on the printers (the log is lab-wide)
+app.get('/api/jobs/:id/thumb', auth, (req, res) => {
+  const j = db.prepare("SELECT id FROM jobs WHERE id=? AND status NOT IN ('quoted','pending_payment','rejected')").get(req.params.id) || db.prepare('SELECT id FROM jobs WHERE id=? AND user_id=?').get(req.params.id, req.user.id);
+  if (!j) return res.status(404).end();
+  const f = `uploads/thumb_${j.id}.png`;
   if (!fs.existsSync(f)) return res.status(404).end();
   res.set('Cache-Control', 'private, max-age=86400'); res.sendFile(require('node:path').resolve(f));
 });
@@ -122,10 +125,13 @@ app.post('/api/jobs/:id/cancel', auth, mine, wrap((req, res) => {
   setStatus(req.job.id, 'rejected', ",note='Cancelled by user'"); res.json({});
 }));
 
-const JOBS = `SELECT j.id,j.user_id,j.printer_id,j.file_name,j.grams,j.minutes,j.exact,j.price,j.user_type,j.status,j.txn_id,j.paid_amount,j.created,j.started,j.finished,j.note,u.name user_name,u.email,p.name printer FROM jobs j JOIN users u ON u.id=j.user_id JOIN printers p ON p.id=j.printer_id`;
+const JOBS = `SELECT j.id,j.user_id,j.printer_id,j.file_name,j.grams,j.minutes,j.exact,j.price,j.user_type,j.status,j.txn_id,j.paid_amount,j.created,j.started,j.finished,j.note,j.source,COALESCE(u.name,'Direct print') user_name,u.email,p.name printer FROM jobs j LEFT JOIN users u ON u.id=j.user_id JOIN printers p ON p.id=j.printer_id`;
 app.get('/api/jobs', auth, (req, res) => res.json(db.prepare(`${JOBS} WHERE j.user_id=? AND j.status<>'quoted' ORDER BY j.id DESC`).all(req.user.id)));
 
 // ---- admin ----
+// lab-wide log of everything the printers actually ran (site jobs + direct prints)
+app.get('/api/printer-log', auth, (_req, res) => res.json(db.prepare(`${JOBS} WHERE j.status IN ('printing','done','failed') ORDER BY COALESCE(j.started,j.created) DESC LIMIT 300`).all()
+  .map(({ email, txn_id, paid_amount, price, ...j }) => j)));
 app.get('/api/admin/jobs', auth, admin, (_req, res) => res.json(db.prepare(`${JOBS} WHERE j.status<>'quoted' ORDER BY j.id DESC`).all()));
 app.get('/api/admin/users', auth, admin, (_req, res) => res.json(db.prepare('SELECT id,name,email,type,is_admin FROM users ORDER BY id').all()));
 app.post('/api/admin/users/:id', auth, admin, wrap((req, res) => {
