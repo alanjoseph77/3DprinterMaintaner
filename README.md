@@ -14,7 +14,9 @@ Web app for sharing two Bambu Lab printers (P1S, P2S).
     npm install
     npm start          # http://localhost:3000 (Node 18+)
 
-The first registered user becomes admin. Set the UPI id and rates under Admin > Settings.
+The admin account is fixed: `admin@printlab.local` / `admin123` by default. Copy `.env.example` to `.env` and set
+`ADMIN_EMAIL` / `ADMIN_PASSWORD` (the admin is re-created with these on every start, so editing `.env` also resets a forgotten password).
+Set the UPI id and rates under Admin > Settings.
 Data lives in `data/app.db`, uploads in `uploads/`.
 
 ## Live printer status

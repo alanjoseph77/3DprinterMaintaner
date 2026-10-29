@@ -1,3 +1,5 @@
+const fs0 = require('node:fs');
+if (fs0.existsSync('.env')) for (const l of fs0.readFileSync('.env', 'utf8').split(/\r?\n/)) { const m = /^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/.exec(l); if (m && !(m[1] in process.env)) process.env[m[1]] = m[2]; }
 const express = require('express');
 const multer = require('multer');
 const QRCode = require('qrcode');
@@ -36,8 +38,7 @@ const pub = u => u && { id: u.id, name: u.name, email: u.email, type: u.type, is
 app.post('/api/register', wrap((req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password || password.length < 6) throw new Error('Name, email and a 6+ char password are required');
-  const first = db.prepare('SELECT COUNT(*) c FROM users').get().c === 0;   // first user = admin
-  const r = db.prepare('INSERT INTO users(name,email,pass,is_admin) VALUES(?,?,?,?)').run(name, email.toLowerCase(), hash(password), first ? 1 : 0);
+  const r = db.prepare('INSERT INTO users(name,email,pass,is_admin) VALUES(?,?,?,?)').run(name, email.toLowerCase(), hash(password), 0);
   login(res, r.lastInsertRowid);
   res.json(pub(db.prepare('SELECT * FROM users WHERE id=?').get(r.lastInsertRowid)));
 }));
@@ -155,6 +156,14 @@ app.get('/api/admin/stats', auth, admin, (_req, res) => res.json(db.prepare(`
     ROUND(COALESCE(SUM((julianday(j.finished)-julianday(j.started))*24),0),2) hours
   FROM printers p LEFT JOIN jobs j ON j.printer_id=p.id AND j.status='done' GROUP BY p.id`).all()));
 
+// Fixed admin account: created/reset on every start from ADMIN_EMAIL / ADMIN_PASSWORD (.env or environment)
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@printlab.local').toLowerCase(), ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+{
+  const u = db.prepare('SELECT id FROM users WHERE email=?').get(ADMIN_EMAIL);
+  if (u) db.prepare('UPDATE users SET pass=?,is_admin=1 WHERE id=?').run(hash(ADMIN_PASSWORD), u.id);
+  else db.prepare('INSERT INTO users(name,email,pass,is_admin,type) VALUES(?,?,?,1,\'csd\')').run('Admin', ADMIN_EMAIL, hash(ADMIN_PASSWORD));
+  if (require.main === module && ADMIN_PASSWORD === 'admin123') console.warn('WARNING: using the default admin password. Set ADMIN_PASSWORD in a .env file.');
+}
 const port = process.env.PORT || 3000;
 if (require.main === module) bambu.start();
 if (require.main === module) app.listen(port, () => console.log(`Print Lab running: http://localhost:${port}`)).on('error', e => { console.error('Could not start server:', e.message); process.exit(1); });
