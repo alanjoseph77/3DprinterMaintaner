@@ -13,7 +13,10 @@ const liveInfo = p => !p.live || !p.live.online ? '' : `<div class="mute" style=
 const dur = m => m ? `${Math.floor(m / 60)}h ${Math.round(m % 60)}m` : '–';
 const run = fn => async (...a) => { try { await fn(...a); } catch (e) { alert(e.message); } };
 
-async function init() { me = await api('/api/me'); render(); }
+async function init() {
+  try { me = await api('/api/me'); render(); }
+  catch (e) { app.innerHTML = `<div class="card"><h2>Cannot reach the server</h2><p class="err">${esc(e.message)}</p><p class="mute">Check that <code>npm start</code> is still running in the terminal, then press Ctrl+F5.</p></div>`; }
+}
 function render() {
   $('#who').innerHTML = me ? `${esc(me.name)} <span class="tag">${me.type.toUpperCase()}</span> <button class="alt" onclick="logout()">Logout</button>` : '';
   if (!me) return authView();
