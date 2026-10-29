@@ -55,6 +55,7 @@ app.get('/api/printers', auth, (req, res) => res.json(db.prepare(`
   SELECT p.id,p.name,p.status,p.ip,p.serial,(p.access_code IS NOT NULL AND p.access_code<>'') has_code,
     (SELECT COUNT(*) FROM jobs j WHERE j.printer_id=p.id AND j.status IN ('queued','printing')) queue FROM printers p`).all()
   .map(p => ({ ...p, ip: req.user.is_admin ? p.ip : undefined, serial: req.user.is_admin ? p.serial : undefined, live: bambu.info(p.id) }))));
+app.get('/api/admin/printers/:id/raw', auth, admin, (req, res) => res.json(bambu.raw(+req.params.id) || {}));
 app.post('/api/admin/printers/:id', auth, admin, wrap((req, res) => {
   const { ip, serial, access_code } = req.body;
   db.prepare('UPDATE printers SET ip=?,serial=?,access_code=COALESCE(NULLIF(?,\'\'),access_code) WHERE id=?').run((ip || '').trim(), (serial || '').trim(), (access_code || '').trim(), req.params.id);

@@ -21,9 +21,11 @@ function render() {
   $('#who').innerHTML = me ? `${esc(me.name)} <span class="tag">${me.type.toUpperCase()}</span> <button class="alt" onclick="logout()">Logout</button>` : '';
   if (!me) return authView();
   app.innerHTML = `<div class="tabs"><button class="${tab === 'print' ? '' : 'alt'}" onclick="go('print')">New print</button>
+    <button class="${tab === 'live' ? '' : 'alt'}" onclick="go('live')">Live printers</button>
     <button class="${tab === 'hist' ? '' : 'alt'}" onclick="go('hist')">My history</button>
     ${me.is_admin ? `<button class="${tab === 'admin' ? '' : 'alt'}" onclick="go('admin')">Admin</button>` : ''}</div><div id="view"></div>`;
-  ({ print: printView, hist: histView, admin: adminView })[tab]();
+  clearInterval(window.liveTimer);
+  ({ print: printView, live: liveView, hist: histView, admin: adminView })[tab]();
 }
 window.go = t => { tab = t; render(); };
 window.logout = run(async () => { await api('/api/logout', {}); me = null; render(); });
@@ -86,6 +88,27 @@ const actions = j => ({
 })[j.status] || '';
 window.act = run(async (id, a) => { const note = a === 'reject' ? prompt('Reason?') || '' : ''; await api(`/api/admin/jobs/${id}/${a}`, { note }); adminView(); });
 
+const speedName = n => ({ 1: 'Silent', 2: 'Standard', 3: 'Sport', 4: 'Ludicrous' })[n] || '–';
+const liveCard = p => {
+  const l = p.live, st = !l ? 'not linked' : !l.online ? 'offline' : l.state === 'RUNNING' ? 'printing' : l.state === 'PAUSE' ? 'paused' : l.state === 'FINISH' ? 'finished' : l.state === 'FAILED' ? 'failed' : 'idle';
+  const rows = !l || !l.online ? `<p class="mute">${l?.error ? esc(l.error) : 'No data yet. Admin: add the printer connection details.'}</p>` : `
+    ${l.state === 'RUNNING' || l.state === 'PAUSE' ? `<div style="background:var(--line);border-radius:99px;height:12px;overflow:hidden;margin:8px 0"><div style="width:${l.percent || 0}%;height:100%;background:var(--ok)"></div></div>
+    <p style="font-size:22px;margin:4px 0"><b>${l.percent ?? '?'}%</b> <span class="mute" style="font-size:14px">${l.remaining_min != null ? dur(l.remaining_min) + ' left' : ''}</span></p>` : ''}
+    <table><tr><th>File</th><td>${esc(l.file || l.gcode_file || '–')}</td></tr>
+    <tr><th>Layer</th><td>${l.layer ?? '–'} / ${l.total_layers ?? '–'}</td></tr>
+    <tr><th>Nozzle</th><td>${l.nozzle != null ? Math.round(l.nozzle) + '°C' : '–'}</td></tr>
+    <tr><th>Bed</th><td>${l.bed != null ? Math.round(l.bed) + '°C' : '–'}</td></tr>
+    <tr><th>Chamber</th><td>${l.chamber != null ? Math.round(l.chamber) + '°C' : '–'}</td></tr>
+    <tr><th>Speed</th><td>${speedName(l.speed)}</td></tr>
+    <tr><th>Wi‑Fi</th><td>${esc(l.wifi || '–')}</td></tr>
+    ${l.errors ? `<tr><th>Warnings</th><td class="err">${l.errors} active</td></tr>` : ''}</table>`;
+  return `<div class="card"><h2>${esc(p.name)} ${tag(st)} <span class="mute" style="font-size:13px">${p.queue} in queue</span></h2>${rows}</div>`;
+};
+async function liveView() {
+  const draw = async () => { const ps = await api('/api/printers'); const el = $('#live'); if (el) el.innerHTML = ps.map(liveCard).join(''); };
+  $('#view').innerHTML = '<div id="live" class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))"></div><p class="mute">Updates every 5 seconds.</p>';
+  await draw(); window.liveTimer = setInterval(() => draw().catch(() => {}), 5000);
+}
 async function histView() { $('#view').innerHTML = `<div class="card"><h2>My history</h2>${jobsTable(await api('/api/jobs'))}</div>`; }
 
 async function adminView() {
@@ -101,11 +124,13 @@ async function adminView() {
     ${printers.map(p => `<div class="row"><b style="width:50px">${esc(p.name)}</b>${liveTag(p)}
       <input id="ip${p.id}" placeholder="IP" value="${esc(p.ip || '')}" size="14"><input id="sn${p.id}" placeholder="Serial" value="${esc(p.serial || '')}" size="18">
       <input id="ac${p.id}" placeholder="${p.has_code ? 'Access code (saved)' : 'Access code'}" size="12"><button onclick="savePrinter(${p.id})">Connect</button>
+      <button class="alt" onclick="rawData(${p.id})">Raw data</button>
       ${p.live?.error ? `<span class="err">${esc(p.live.error)}</span>` : ''}</div>`).join('')}</div>
     <div class="card"><h2>Settings</h2><div class="row">${Object.keys(s).map(k => `<label class="mute">${k}<br><input id="s_${k}" value="${esc(s[k])}"></label>`).join('')}</div>
     <button onclick="saveSettings(${JSON.stringify(Object.keys(s)).replace(/"/g, '&quot;')})">Save</button></div>`;
 }
 window.savePrinter = run(async id => { await api('/api/admin/printers/' + id, { ip: $('#ip' + id).value, serial: $('#sn' + id).value, access_code: $('#ac' + id).value }); setTimeout(adminView, 3000); alert('Saved. Connecting...'); });
+window.rawData = run(async id => { const d = await api(`/api/admin/printers/${id}/raw`); const w = window.open('', '_blank'); w.document.write('<pre>' + esc(JSON.stringify(d, null, 2)) + '</pre>'); });
 window.setUser = run(async (id, b) => { await api('/api/admin/users/' + id, b); });
 window.saveSettings = run(async keys => { await api('/api/admin/settings', Object.fromEntries(keys.map(k => [k, $('#s_' + k).value]))); alert('Saved'); });
 

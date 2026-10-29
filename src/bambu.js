@@ -43,7 +43,10 @@ function disconnect(id) { const c = clients.get(id); if (c) { clearInterval(c.po
 const info = id => {
   const l = live.get(id); if (!l) return null;
   return { online: !!l.online, error: l.error || null, state: l.gcode_state || null, percent: l.mc_percent ?? null, remaining_min: l.mc_remaining_time ?? null,
-    nozzle: l.nozzle_temper ?? null, bed: l.bed_temper ?? null, file: l.subtask_name || l.gcode_file || null, layer: l.layer_num ?? null, total_layers: l.total_layer_num ?? null };
+    nozzle: l.nozzle_temper ?? null, bed: l.bed_temper ?? null, file: l.subtask_name || l.gcode_file || null, layer: l.layer_num ?? null, total_layers: l.total_layer_num ?? null,
+    chamber: l.chamber_temper ?? null, speed: l.spd_lvl ?? null, speed_pct: l.spd_mag ?? null, wifi: l.wifi_signal ?? null, errors: Array.isArray(l.hms) ? l.hms.length : 0,
+    gcode_file: l.gcode_file || null, updated: l.updated || null };
 };
+const raw = id => live.get(id) || null;
 const start = () => db.prepare('SELECT * FROM printers').all().forEach(connect);
-module.exports = { connect, disconnect, info, start };
+module.exports = { connect, disconnect, info, raw, start };
