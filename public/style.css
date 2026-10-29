@@ -1,0 +1,16 @@
+:root{--bg:#f5f6f8;--card:#fff;--ink:#1c2230;--mute:#6b7385;--line:#e3e6ec;--acc:#2f6fed;--ok:#1a8f4c;--bad:#c93b3b;--warn:#b7791f}
+@media(prefers-color-scheme:dark){:root{--bg:#12151c;--card:#1b2029;--ink:#e8ebf2;--mute:#97a0b3;--line:#2a313e;--acc:#6b9bff;--ok:#43c47a;--bad:#ff7070;--warn:#e3a94b}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,sans-serif}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--card);border-bottom:1px solid var(--line)}
+h1{font-size:18px;margin:0}h2{font-size:16px;margin:0 0 10px}main{max-width:900px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+input,select,button{font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+button{cursor:pointer;background:var(--acc);color:#fff;border:0}button.alt{background:var(--bg);color:var(--ink);border:1px solid var(--line)}
+button.bad{background:var(--bad)}button.ok{background:var(--ok)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.pr{border:2px solid var(--line);border-radius:10px;padding:10px;cursor:pointer}.pr.sel{border-color:var(--acc)}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid var(--line);color:var(--mute)}
+.tag.printing{color:var(--warn)}.tag.idle,.tag.done,.tag.queued{color:var(--ok)}.tag.failed,.tag.rejected{color:var(--bad)}
+.tbl{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.mute{color:var(--mute)}.err{color:var(--bad)}.tabs{display:flex;gap:6px;margin-bottom:12px}
+td:last-child{white-space:normal;min-width:170px}td{max-width:180px;overflow:hidden;text-overflow:ellipsis}td:last-child{max-width:none;overflow:visible}

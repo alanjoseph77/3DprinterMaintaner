@@ -1,0 +1,26 @@
+{
+  "name": "3dprintermaintaner",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alanjoseph77/3DprinterMaintaner.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/alanjoseph77/3DprinterMaintaner/issues"
+  },
+  "homepage": "https://github.com/alanjoseph77/3DprinterMaintaner#readme",
+  "dependencies": {
+    "express": "^5.3.0",
+    "fflate": "^0.8.3",
+    "multer": "^2.5.0",
+    "qrcode": "^1.5.4"
+  }
+}
