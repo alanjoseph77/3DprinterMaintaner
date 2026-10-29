@@ -81,6 +81,7 @@ app.post('/api/jobs', auth, upload.single('file'), wrap((req, res) => {
   const r = db.prepare(`INSERT INTO jobs(user_id,printer_id,file_name,file_path,grams,minutes,exact,price,user_type,status) VALUES(?,?,?,?,?,?,?,?,?,'quoted')`)
     .run(req.user.id, printer.id, f.originalname, f.path, info.grams, info.minutes, info.exact, p, req.user.type);
   const id = Number(r.lastInsertRowid);
+  if (info.thumb) fs.writeFileSync(`uploads/thumb_${id}.png`, info.thumb);
   if (!csd) db.prepare('UPDATE jobs SET price=? WHERE id=?').run(p + (id % 99 + 1) / 100, id); // unique paise to match the payment
   const { file_path, ...out } = db.prepare('SELECT * FROM jobs WHERE id=?').get(id);
   res.json(out);
@@ -98,6 +99,11 @@ app.post('/api/jobs/:id/confirm', auth, mine, wrap((req, res) => {
   setStatus(req.job.id, req.job.user_type === 'csd' ? 'queued' : 'pending_payment');
   res.json({});
 }));
+app.get('/api/jobs/:id/thumb', auth, mine, (req, res) => {
+  const f = `uploads/thumb_${req.job.id}.png`;
+  if (!fs.existsSync(f)) return res.status(404).end();
+  res.set('Cache-Control', 'private, max-age=86400'); res.sendFile(require('node:path').resolve(f));
+});
 app.get('/api/jobs/:id/qr', auth, mine, wrap(async (req, res) => {
   const s = settings(), j = req.job;
   const url = `upi://pay?pa=${encodeURIComponent(s.upi_id)}&pn=${encodeURIComponent(s.payee)}&am=${j.price.toFixed(2)}&cu=INR&tn=${encodeURIComponent('3D print #' + j.id)}`;

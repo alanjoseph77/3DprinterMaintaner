@@ -11,7 +11,8 @@ function from3mf(buf) {
   const grams = [...xml.matchAll(/<filament [^>]*used_g="([\d.]+)"/g)].reduce((s, m) => s + parseFloat(m[1]), 0);
   const pred = xml.match(/key="prediction"\s+value="(\d+)"/);
   if (!grams) throw new Error('No filament usage found in the 3MF.');
-  return { grams, minutes: pred ? parseInt(pred[1], 10) / 60 : 0, exact: 1 };
+  const pic = files['Metadata/plate_1.png'] || files[Object.keys(files).find(k => /^Metadata\/plate_\d+\.png$/.test(k))] || files['Metadata/top_1.png'];
+  return { grams, minutes: pred ? parseInt(pred[1], 10) / 60 : 0, exact: 1, thumb: pic ? Buffer.from(pic) : null };
 }
 
 function fromStl(buf) {

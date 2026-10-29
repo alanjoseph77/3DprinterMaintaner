@@ -76,8 +76,10 @@ window.payBox = run(async id => {
 });
 window.submitTxn = run(async id => { await api(`/api/jobs/${id}/pay`, { txn_id: $('#txn').value }); alert('Submitted. An admin will confirm your payment.'); go('hist'); });
 
-const jobsTable = (jobs, adm) => `<div class="tbl"><table><tr><th>#</th><th>When</th>${adm ? '<th>User</th>' : ''}<th>Printer</th><th>File</th><th>g</th><th>Type</th><th>Price</th><th>Txn</th><th>Status</th><th></th></tr>${jobs.map(j => `<tr>
-  <td>${j.id}</td><td>${esc(j.created.slice(0, 16))}</td>${adm ? `<td>${esc(j.user_name)}</td>` : ''}<td>${esc(j.printer)}</td><td>${esc(j.file_name)}</td>
+const thumb = j => `<div class="th" onclick="bigPic(${j.id})"><img src="/api/jobs/${j.id}/thumb" loading="lazy" alt="" onerror="this.parentNode.classList.add('none');this.remove()"><span>🧊</span></div>`;
+window.bigPic = id => { const o = document.createElement('div'); o.className = 'ov'; o.onclick = () => o.remove(); o.innerHTML = `<img src="/api/jobs/${id}/thumb" onerror="this.remove()">`; document.body.appendChild(o); };
+const jobsTable = (jobs, adm) => `<div class="tbl"><table><tr><th></th><th>#</th><th>When</th>${adm ? '<th>User</th>' : ''}<th>Printer</th><th>File</th><th>g</th><th>Type</th><th>Price</th><th>Txn</th><th>Status</th><th></th></tr>${jobs.map(j => `<tr>
+  <td>${thumb(j)}</td><td>${j.id}</td><td>${esc(j.created.slice(0, 16))}</td>${adm ? `<td>${esc(j.user_name)}</td>` : ''}<td>${esc(j.printer)}</td><td>${esc(j.file_name)}</td>
   <td>${j.grams.toFixed(1)}</td><td>${j.user_type}</td><td>${j.user_type === 'csd' ? 'free' : money(j.price)}</td><td>${esc(j.txn_id || '')}</td>
   <td>${tag(j.status)} <span class="mute">${esc(j.note || '')}</span></td>
   <td>${j.status === 'pending_payment' && !adm ? `<button onclick="payBox(${j.id});go('print')">Pay</button>` : ''}${adm ? actions(j) : ''}</td></tr>`).join('')}</table></div>`;
