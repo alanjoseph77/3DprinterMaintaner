@@ -28,3 +28,8 @@ online/idle/printing, progress, temperatures, and marks the running job done/fai
 
 `src/printer.js` is a mock. Real start (MQTT + FTPS over LAN, needs LAN mode / Developer Mode on the P1S and P2S)
 is the next step; per-printer `ip`, `serial`, `access_code` columns already exist.
+
+## Printer log pictures
+
+The Printer log tries to read each model's preview from the printer over FTPS. If a picture is missing,
+open Admin > Printer connections > "Check files" and "Raw data" (look for `thumb_error`) to see why.
