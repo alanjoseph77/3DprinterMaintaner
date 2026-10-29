@@ -147,5 +147,5 @@ app.get('/api/admin/stats', auth, admin, (_req, res) => res.json(db.prepare(`
   FROM printers p LEFT JOIN jobs j ON j.printer_id=p.id AND j.status='done' GROUP BY p.id`).all()));
 
 const port = process.env.PORT || 3000;
-if (require.main === module) app.listen(port, () => console.log(`http://localhost:${port}`));
+if (require.main === module) app.listen(port, () => console.log(`Print Lab running: http://localhost:${port}`)).on('error', e => { console.error('Could not start server:', e.message); process.exit(1); });
 module.exports = app;
