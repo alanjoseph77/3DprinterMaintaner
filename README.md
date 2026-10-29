@@ -12,7 +12,7 @@ Web app for sharing two Bambu Lab printers (P1S, P2S).
 ## Run
 
     npm install
-    npm start          # http://localhost:3000 (Node 22.13+)
+    npm start          # http://localhost:3000 (Node 18+)
 
 The first registered user becomes admin. Set the UPI id and rates under Admin > Settings.
 Data lives in `data/app.db`, uploads in `uploads/`.

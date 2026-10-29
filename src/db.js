@@ -1,7 +1,7 @@
-const { DatabaseSync } = require('node:sqlite');
+const Database = require('better-sqlite3');
 const fs = require('node:fs');
 fs.mkdirSync('data', { recursive: true });
-const db = new DatabaseSync(process.env.DB_PATH || 'data/app.db');
+const db = new Database(process.env.DB_PATH || 'data/app.db');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users(
