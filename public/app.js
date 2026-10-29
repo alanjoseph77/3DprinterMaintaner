@@ -136,13 +136,14 @@ async function adminView() {
     ${printers.map(p => `<div class="row"><b style="width:50px">${esc(p.name)}</b>${liveTag(p)}
       <input id="ip${p.id}" placeholder="IP" value="${esc(p.ip || '')}" size="14"><input id="sn${p.id}" placeholder="Serial" value="${esc(p.serial || '')}" size="18">
       <input id="ac${p.id}" placeholder="${p.has_code ? 'Access code (saved)' : 'Access code'}" size="12"><button onclick="savePrinter(${p.id})">Connect</button>
-      <button class="alt" onclick="rawData(${p.id})">Raw data</button>
+      <button class="alt" onclick="rawData(${p.id})">Raw data</button><button class="alt" onclick="ftpFiles(${p.id})">Check files</button>
       ${p.live?.error ? `<span class="err">${esc(p.live.error)}</span>` : ''}</div>`).join('')}</div>
     <div class="card"><h2>Settings</h2><div class="row">${Object.keys(s).map(k => `<label class="mute">${k}<br><input id="s_${k}" value="${esc(s[k])}"></label>`).join('')}</div>
     <button onclick="saveSettings(${JSON.stringify(Object.keys(s)).replace(/"/g, '&quot;')})">Save</button></div>`;
 }
 window.savePrinter = run(async id => { await api('/api/admin/printers/' + id, { ip: $('#ip' + id).value, serial: $('#sn' + id).value, access_code: $('#ac' + id).value }); setTimeout(adminView, 3000); alert('Saved. Connecting...'); });
 window.rawData = run(async id => { const d = await api(`/api/admin/printers/${id}/raw`); const w = window.open('', '_blank'); w.document.write('<pre>' + esc(JSON.stringify(d, null, 2)) + '</pre>'); });
+window.ftpFiles = run(async id => { const w = window.open('', '_blank'); w.document.write('Checking printer files...'); try { const d = await api(`/api/admin/printers/${id}/files`); w.document.body.innerHTML = '<pre>' + esc(JSON.stringify(d, null, 2)) + '</pre>'; } catch (e) { w.document.body.innerHTML = '<pre>Error: ' + esc(e.message) + '</pre>'; } });
 window.setUser = run(async (id, b) => { await api('/api/admin/users/' + id, b); });
 window.saveSettings = run(async keys => { await api('/api/admin/settings', Object.fromEntries(keys.map(k => [k, $('#s_' + k).value]))); alert('Saved'); });
 

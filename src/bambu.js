@@ -41,30 +41,53 @@ function trackJobs(id, cur) {
   }
 }
 
-// Best effort: the printer keeps the sent .3mf in its file store; grab it over FTPS to read the preview picture and filament use.
-async function fetchThumb(id, jobId, name) {
-  const p = db.prepare('SELECT * FROM printers WHERE id=?').get(id);
-  if (!p?.ip || !p.access_code) return;
+const DIRS = ['/', '/cache', '/model', '/sdcard', '/sdcard/cache'];
+async function ftpClient(p) {
   const c = new ftp.Client(15000);
+  await c.access({ host: p.ip, port: 990, user: 'bblp', password: p.access_code, secure: 'implicit', secureOptions: { rejectUnauthorized: false } });
+  return c;
+}
+
+// Admin diagnostic: what files does the printer show us?
+async function diagnose(id) {
+  const p = db.prepare('SELECT * FROM printers WHERE id=?').get(id);
+  if (!p?.ip || !p.access_code) throw new Error('Printer is not configured');
+  const c = await ftpClient(p), out = {};
+  try { for (const d of DIRS) { try { out[d] = (await c.list(d)).map(f => `${f.isDirectory ? '[dir] ' : ''}${f.name}${f.size ? ' (' + f.size + ' B)' : ''}`); } catch (e) { out[d] = 'error: ' + e.message; } } }
+  finally { c.close(); }
+  return out;
+}
+
+// Best effort: the printer keeps the sent .3mf in its file store; grab it over FTPS to read the preview picture and filament use.
+async function fetchThumb(id, jobId, name, attempt = 1) {
+  const p = db.prepare('SELECT * FROM printers WHERE id=?').get(id);
+  if (!p?.ip || !p.access_code || fs.existsSync(`uploads/thumb_${jobId}.png`)) return;
+  let c;
   try {
-    await c.access({ host: p.ip, port: 990, user: 'bblp', password: p.access_code, secure: 'implicit', secureOptions: { rejectUnauthorized: false } });
+    c = await ftpClient(p);
     const base = String(name).replace(/\.gcode\.3mf$|\.3mf$|\.gcode$/i, '').toLowerCase();
-    let hit = null;
-    for (const dir of ['/', '/cache', '/model']) {
+    let hit = null, newest = null;
+    for (const dir of DIRS) {
       let list = []; try { list = await c.list(dir); } catch { continue; }
-      hit = list.find(f => f.isFile && /\.3mf$/i.test(f.name) && f.name.toLowerCase().includes(base));
-      if (hit) { hit.dir = dir; break; }
+      for (const f of list.filter(f => f.isFile && /\.3mf$/i.test(f.name))) {
+        f.dir = dir;
+        if (!hit && f.name.toLowerCase().includes(base)) hit = f;
+        if (!newest || (f.modifiedAt || 0) > (newest.modifiedAt || 0)) newest = f;
+      }
+      if (hit) break;
     }
-    if (!hit) throw new Error('model file not found on printer');
+    const file = hit || newest;
+    if (!file) throw new Error('no .3mf file found on the printer');
     const chunks = [];
-    await c.downloadTo(new Writable({ write(ch, _e, cb) { chunks.push(ch); cb(); } }), `${hit.dir === '/' ? '' : hit.dir}/${hit.name}`);
+    await c.downloadTo(new Writable({ write(ch, _e, cb) { chunks.push(ch); cb(); } }), `${file.dir === '/' ? '' : file.dir}/${file.name}`);
     const info = from3mf(Buffer.concat(chunks));
     if (info.thumb) fs.writeFileSync(`uploads/thumb_${jobId}.png`, info.thumb);
     db.prepare("UPDATE jobs SET grams=?,minutes=?,exact=1 WHERE id=? AND source='printer'").run(info.grams, info.minutes, jobId);
-    live.set(id, { ...live.get(id), thumb_error: null });
+    live.set(id, { ...live.get(id), thumb_error: hit ? null : `picture taken from newest file (${file.name}), name "${name}" did not match` });
   } catch (e) {
     live.set(id, { ...live.get(id), thumb_error: e.message });
-  } finally { c.close(); }
+    if (attempt < 3) setTimeout(() => fetchThumb(id, jobId, name, attempt + 1), attempt * 45000);   // the file may not be there yet
+  } finally { c?.close(); }
 }
 
 function connect(p) {
@@ -98,4 +121,4 @@ const info = id => {
 };
 const raw = id => live.get(id) || null;
 const start = () => db.prepare('SELECT * FROM printers').all().forEach(connect);
-module.exports = { connect, disconnect, info, raw, start, _apply: apply };
+module.exports = { connect, disconnect, info, raw, start, diagnose, _apply: apply };
