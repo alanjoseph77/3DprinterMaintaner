@@ -72,6 +72,12 @@ const notify = (userId, text, jobId) => db.prepare('INSERT INTO notifications(us
 const notifyAdmins = (text, jobId) => db.prepare('SELECT id FROM users WHERE is_admin=1').all().forEach(a => notify(a.id, text, jobId));
 const rm = f => { try { fs.unlinkSync(f); } catch {} };
 
+app.get('/api/projects', auth, (_req, res) => res.json(db.prepare('SELECT id,name FROM projects WHERE active=1 ORDER BY name').all()));
+app.post('/api/admin/projects', auth, admin, wrap((req, res) => {
+  const name = String(req.body.name || '').trim(); if (!name) throw new Error('Enter a project name');
+  db.prepare('INSERT INTO projects(name) VALUES(?) ON CONFLICT(name) DO UPDATE SET active=1').run(name); res.json({});
+}));
+app.post('/api/admin/projects/:id/remove', auth, admin, (req, res) => { db.prepare('UPDATE projects SET active=0 WHERE id=?').run(req.params.id); res.json({}); });
 app.get('/api/options', auth, (_req, res) => res.json({ materials: Object.keys(MATERIALS), build_limit: BUILD_LIMIT }));
 
 // Steps 2-3: upload the part, set parameters, site estimates weight/time/cost
@@ -82,6 +88,13 @@ app.post('/api/jobs', auth, upload.single('file'), wrap((req, res) => {
     if (mode === 'csd' && req.user.type !== 'csd') throw new Error('CSD project requests are for CSD members only. Ask an admin to mark your account as CSD, or choose Personal.');
     if (!/\.(3mf|stl)$/i.test(f.originalname)) throw new Error('Upload the part as an .stl file (or a sliced .3mf from Bambu Studio)');
     const p = checkParams(req.body);
+    let project = null, partName = String(req.body.part_name || '').trim().slice(0, 120), desc = String(req.body.description || '').trim().slice(0, 1000);
+    if (mode === 'csd') {
+      project = db.prepare('SELECT id FROM projects WHERE id=? AND active=1').get(req.body.project_id);
+      if (!project) throw new Error('Select the project');
+      if (!partName) throw new Error('Enter the part name');
+      if (!desc) throw new Error('Enter a short description of the part');
+    }
     let info, geo = null;
     if (/\.3mf$/i.test(f.originalname)) info = slice(f.path, f.originalname);
     else { geo = parseStl(fs.readFileSync(f.path)); info = { ...estimate(geo, p), exact: 0 }; }
@@ -89,10 +102,10 @@ app.post('/api/jobs', auth, upload.single('file'), wrap((req, res) => {
     if (mode === 'csd' && lim && info.grams > lim) throw new Error(`CSD jobs are limited to ${lim} g`);
     const printer = db.prepare('SELECT * FROM printers WHERE id=?').get(req.body.printer_id) ||
       db.prepare(`SELECT p.* FROM printers p ORDER BY (SELECT COUNT(*) FROM jobs j WHERE j.printer_id=p.id AND j.status IN ('queued','printing')) LIMIT 1`).get();
-    const cost = mode === 'csd' ? 0 : Math.round(price(info.grams, info.minutes, s));
-    const r = db.prepare(`INSERT INTO jobs(user_id,printer_id,file_name,file_path,grams,minutes,exact,price,user_type,status,material,layer,infill,supports,copies,geo)
-      VALUES(?,?,?,?,?,?,?,?,?,'quoted',?,?,?,?,?,?)`).run(req.user.id, printer.id, f.originalname, f.path, info.grams, info.minutes, info.exact, cost,
-      mode === 'csd' ? 'csd' : 'individual', p.material, p.layer, p.infill, p.supports ? 1 : 0, p.copies, geo ? JSON.stringify(geo.size) : null);
+    const cost = Math.round(price(info.grams, info.minutes, s));   // CSD projects see the cost but are not charged
+    const r = db.prepare(`INSERT INTO jobs(user_id,printer_id,file_name,file_path,grams,minutes,exact,price,user_type,status,material,layer,infill,supports,copies,geo,project_id,part_name,description)
+      VALUES(?,?,?,?,?,?,?,?,?,'quoted',?,?,?,?,?,?,?,?,?)`).run(req.user.id, printer.id, f.originalname, f.path, info.grams, info.minutes, info.exact, cost,
+      mode === 'csd' ? 'csd' : 'individual', p.material, p.layer, p.infill, p.supports ? 1 : 0, p.copies, geo ? JSON.stringify(geo.size) : null, project?.id ?? null, partName || null, desc || null);
     const id = Number(r.lastInsertRowid);
     if (info.thumb) fs.writeFileSync(`uploads/thumb_${id}.png`, info.thumb);
     if (mode === 'personal') db.prepare('UPDATE jobs SET price=? WHERE id=?').run(cost + (id % 99 + 1) / 100, id); // unique paise to match the payment
@@ -139,7 +152,7 @@ app.post('/api/jobs/:id/submit', auth, proofUpload.single('proof'), mine, wrap((
     let proof = null;
     if (pf) { proof = `proof_${j.id}${require('node:path').extname(pf.originalname).toLowerCase().replace(/[^.a-z0-9]/g, '')}`; fs.renameSync(pf.path, 'uploads/' + proof); }
     db.prepare("UPDATE jobs SET status='submitted',txn_id=?,proof_file=?,submitted=datetime('now') WHERE id=?").run(txn, proof, j.id);
-    notifyAdmins(`New ${j.user_type === 'csd' ? 'CSD project' : 'personal'} request #${j.id} from ${req.user.name}: ${j.file_name}, ${j.grams.toFixed(1)} g${j.user_type === 'csd' ? '' : ', Rs ' + j.price.toFixed(2)}`, j.id);
+    notifyAdmins(`New ${j.user_type === 'csd' ? 'CSD project' : 'personal'} request #${j.id} from ${req.user.name}: ${j.part_name || j.file_name}, ${j.grams.toFixed(1)} g${j.user_type === 'csd' ? '' : ', Rs ' + j.price.toFixed(2)}`, j.id);
     res.json({});
   } catch (e) { if (pf) rm(pf.path); throw e; }
 }));
@@ -161,7 +174,7 @@ app.get('/api/notifications', auth, (req, res) => res.json({
 }));
 app.post('/api/notifications/read', auth, (req, res) => { db.prepare('UPDATE notifications SET is_read=1 WHERE user_id=?').run(req.user.id); res.json({}); });
 
-const JOBS = `SELECT j.id,j.user_id,j.printer_id,j.file_name,j.grams,j.minutes,j.exact,j.price,j.user_type,j.status,j.txn_id,j.paid_amount,j.created,j.started,j.finished,j.note,j.source,j.material,j.layer,j.infill,j.supports,j.copies,j.geo,j.scheduled,j.print_mode,j.material_ok,j.admin_note,j.submitted,(j.proof_file IS NOT NULL) has_proof,COALESCE(u.name,'Direct print') user_name,u.email,p.name printer FROM jobs j LEFT JOIN users u ON u.id=j.user_id JOIN printers p ON p.id=j.printer_id`;
+const JOBS = `SELECT j.id,j.user_id,j.printer_id,j.file_name,j.grams,j.minutes,j.exact,j.price,j.user_type,j.status,j.txn_id,j.paid_amount,j.created,j.started,j.finished,j.note,j.source,j.material,j.layer,j.infill,j.supports,j.copies,j.geo,j.scheduled,j.print_mode,j.material_ok,j.admin_note,j.submitted,j.project_id,j.part_name,j.description,pr.name project,(j.proof_file IS NOT NULL) has_proof,COALESCE(u.name,'Direct print') user_name,u.email,p.name printer FROM jobs j LEFT JOIN users u ON u.id=j.user_id JOIN printers p ON p.id=j.printer_id LEFT JOIN projects pr ON pr.id=j.project_id`;
 app.get('/api/jobs', auth, (req, res) => res.json(db.prepare(`${JOBS} WHERE j.user_id=? AND j.status<>'quoted' ORDER BY j.id DESC`).all(req.user.id)));
 
 // ---- admin ----

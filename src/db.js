@@ -22,9 +22,10 @@ CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 `);
 
 for (const col of ["source TEXT DEFAULT 'app'", 'material TEXT', 'layer REAL', 'infill INTEGER', 'supports INTEGER', 'copies INTEGER', 'geo TEXT',
-  'proof_file TEXT', 'scheduled TEXT', "print_mode TEXT DEFAULT 'auto'", 'material_ok INTEGER', 'admin_note TEXT', 'submitted TEXT'])
+  'proof_file TEXT', 'project_id INTEGER', 'part_name TEXT', 'description TEXT', 'scheduled TEXT', "print_mode TEXT DEFAULT 'auto'", 'material_ok INTEGER', 'admin_note TEXT', 'submitted TEXT'])
   try { db.exec(`ALTER TABLE jobs ADD COLUMN ${col}`); } catch {}
-db.exec(`CREATE TABLE IF NOT EXISTS notifications(
+db.exec(`CREATE TABLE IF NOT EXISTS projects(id INTEGER PRIMARY KEY, name TEXT UNIQUE, active INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS notifications(
   id INTEGER PRIMARY KEY, user_id INTEGER,   -- NULL = for all admins
   text TEXT, job_id INTEGER, is_read INTEGER DEFAULT 0, created TEXT DEFAULT CURRENT_TIMESTAMP)`);
 const defaults = { rate_per_gram: '5', rate_per_hour: '10', min_price: '10', upi_id: 'yourname@upi', payee: 'Print Lab', csd_gram_limit: '0' };

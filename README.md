@@ -22,6 +22,15 @@ Web app for sharing two Bambu Lab printers (P1S, P2S).
 
 Extra parameter changes: contact the admins and come to CSD.
 
+### CSD project request
+
+1. Log in and choose **CSD project** (CSD members only).
+2. Select the project (admins manage the list under Admin > CSD projects); enter part name and description.
+3. Upload the part (`.stl`).
+4. The site estimates weight and time; the user sets print parameters.
+5. The bill shows time, weight and cost, with no payment option.
+6-8. Submit; admins are notified, verify material/schedule/parameters, and approve (site prints directly or manually).
+
 ## Run
 
     npm install
