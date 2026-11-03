@@ -48,6 +48,16 @@ online/idle/printing, progress, temperatures, and marks the running job done/fai
 
 ## Printer control
 
+Approved jobs have three ways to print:
+
+- **Open in Bambu Studio**: opens the uploaded file, unchanged, in Bambu Studio on the server PC (no SD card needed).
+  Set the printer, filament and settings there, slice and press Print. Copies are kept a day in `uploads/studio/`.
+- **Download**: the same uploaded file as a download, for opening in Bambu Studio on another PC.
+- **Start**: sends the job to the printer by itself (below). Needs an SD card in the printer.
+
+A print started from Bambu Studio is linked to its job by the `PrintLab-<job id>` at the start of the file name, so
+keep that name. The job then turns to Printing and Done on its own; without the prefix, use the buttons in the admin list.
+
 Pressing **Start** on an approved job (print mode "site prints") sends it to the printer (`src/printer.js`):
 
 1. A sliced `.3mf` is used as-is. An `.stl` is sliced on the server with the **Bambu Studio** command line, using
