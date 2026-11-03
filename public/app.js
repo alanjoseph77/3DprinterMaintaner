@@ -18,7 +18,8 @@ async function init() {
   catch (e) { app.innerHTML = `<div class="card"><h2>Cannot reach the server</h2><p class="err">${esc(e.message)}</p><p class="mute">Check that <code>npm start</code> is still running in the terminal, then press Ctrl+F5.</p></div>`; }
 }
 function render() {
-  $('#who').innerHTML = me ? `${esc(me.name)} <span class="tag">${me.type.toUpperCase()}</span> <button class="alt" onclick="logout()">Logout</button>` : '';
+  $('#who').innerHTML = me ? `<span class="bell" onclick="toggleBell()" title="Notifications">🔔<b id="bn" hidden></b></span> ${esc(me.name)} <span class="tag">${me.type.toUpperCase()}</span> <button class="alt" onclick="logout()">Logout</button><div id="bellbox" class="bellbox" hidden></div>` : '';
+  if (me) pollBell();
   if (!me) return authView();
   app.innerHTML = `<div class="tabs"><button class="${tab === 'print' ? '' : 'alt'}" onclick="go('print')">New print</button>
     <button class="${tab === 'live' ? '' : 'alt'}" onclick="go('live')">Live printers</button>
@@ -28,6 +29,22 @@ function render() {
   clearInterval(window.liveTimer);
   ({ print: printView, live: liveView, log: logView, hist: histView, admin: adminView })[tab]();
 }
+document.addEventListener('click', e => { const b = $('#bellbox'); if (b && !b.hidden && !e.target.closest('.bell,#bellbox')) b.hidden = true; });
+let lastUnread = 0, bellTimer = null, bellItems = [];
+async function pollBell() {
+  clearInterval(bellTimer); bellTimer = setInterval(() => me && pollBell().catch(() => {}), 15000);
+  const n = await api('/api/notifications'), b = $('#bn'); if (!b) return;
+  bellItems = n.items; b.hidden = !n.unread; b.textContent = n.unread;
+  if (n.unread > lastUnread && n.items[0] && window.Notification && Notification.permission === 'granted') new Notification('Print Lab', { body: n.items[0].text });
+  lastUnread = n.unread;
+  if (me.is_admin && tab === 'admin' && n.unread && !document.querySelector('.modal')) adminView();   // new request arrived: refresh the list
+}
+window.toggleBell = run(async () => {
+  const box = $('#bellbox'); if (!box.hidden) { box.hidden = true; return; }
+  if (window.Notification && Notification.permission === 'default') Notification.requestPermission();
+  box.innerHTML = bellItems.length ? bellItems.map(i => `<div class="bi ${i.is_read ? '' : 'new'}">${esc(i.text)}<br><span class="mute">${esc(i.created.slice(0, 16))}</span></div>`).join('') : '<div class="bi mute">No notifications</div>';
+  box.hidden = false; await api('/api/notifications/read', {}); lastUnread = 0; $('#bn').hidden = true;
+});
 window.go = t => { tab = t; render(); };
 window.logout = run(async () => { await api('/api/logout', {}); me = null; render(); });
 
@@ -40,55 +57,94 @@ function authView() {
 }
 window.auth = run(async k => { me = await api('/api/' + k, { name: $('#n').value, email: $('#e').value, password: $('#p').value }); render(); });
 
+let mode = null, bill = null;
+window.pickMode = m => { mode = m; bill = null; printView(); };
 async function printView() {
-  const [printers, s] = await Promise.all([api('/api/printers'), api('/api/settings')]);
-  const csd = me.type === 'csd';
-  $('#view').innerHTML = `<div class="card"><h2>1. Choose printer</h2><div class="grid">${printers.map(p =>
-    `<div class="pr ${printerSel == p.id ? 'sel' : ''}" onclick="pickPrinter(${p.id},this)"><b>${esc(p.name)}</b><br>${liveTag(p)} <span class="mute">${p.queue} in queue</span>${liveInfo(p)}</div>`).join('')}</div></div>
-    <div class="card"><h2>2. Upload file</h2>
-    <p class="mute">Use a <b>sliced .3mf</b> from Bambu Studio for exact filament use (.stl gives a rough estimate).<br>
-    Rate: ${money(s.rate_per_gram)}/g + ${money(s.rate_per_hour)}/hour, minimum ${money(s.min_price)}. ${csd ? '<b>CSD members print free.</b>' : ''}</p>
-    <div class="row"><input type="file" id="f" accept=".3mf,.stl"><button onclick="quote()">Calculate</button></div></div><div id="quote"></div>`;
+  const canCsd = me.type === 'csd';
+  $('#view').innerHTML = `<div class="card"><h2>1. What is this print for?</h2><div class="grid">
+    <div class="pr ${mode === 'personal' ? 'sel' : ''}" onclick="pickMode('personal')"><b>Personal</b><br><span class="mute">You pay by UPI QR. Admins approve after checking your payment.</span></div>
+    <div class="pr ${mode === 'csd' ? 'sel' : ''} ${canCsd ? '' : 'dis'}" onclick="${canCsd ? "pickMode('csd')" : "alert('CSD projects are for CSD members. Ask an admin to mark your account as CSD, or choose Personal.')"}"><b>CSD project</b><br>
+      <span class="mute">${canCsd ? 'Free for CSD members. Admins approve.' : 'CSD members only.'}</span></div></div></div><div id="step2"></div><div id="quote"></div>`;
+  if (!mode) return;
+  const [printers, s, o] = await Promise.all([api('/api/printers'), api('/api/settings'), api('/api/options')]);
+  $('#step2').innerHTML = `<div class="card"><h2>2. Upload the part and set print parameters</h2>
+    <div class="row"><input type="file" id="f" accept=".stl,.3mf"></div>
+    <p class="mute" style="margin:2px 0 8px">Upload the part as <b>.stl</b>. A sliced .3mf from Bambu Studio also works and gives exact numbers. Max ${o.build_limit} mm per side.</p>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
+      <label class="mute">Material<br><select id="pm">${o.materials.map(m => `<option>${m}</option>`).join('')}</select></label>
+      <label class="mute">Layer height<br><select id="pl"><option>0.12</option><option>0.16</option><option selected>0.20</option><option>0.24</option><option>0.28</option></select></label>
+      <label class="mute">Infill %<br><input id="pi" type="number" min="0" max="100" value="15" style="width:100%"></label>
+      <label class="mute">Copies<br><input id="pc" type="number" min="1" max="20" value="1" style="width:100%"></label>
+      <label class="mute">Printer<br><select id="pp"><option value="">Any (admin decides)</option>${printers.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label></div>
+    <div class="row"><label><input type="checkbox" id="ps"> Needs supports</label></div>
+    <p class="mute">Rate: ${money(s.rate_per_gram)}/g + ${money(s.rate_per_hour)}/hour, minimum ${money(s.min_price)}. <i>Extra parameter changes: contact the admins and come to CSD.</i></p>
+    <button onclick="getBill()">Get estimate</button></div>`;
 }
-window.printerSel = null;
-window.pickPrinter = (id, el) => { printerSel = id; document.querySelectorAll('.pr').forEach(x => x.classList.toggle('sel', x === el)); };
-window.quote = run(async () => {
-  if (!printerSel) throw new Error('Choose a printer first');
+window.getBill = run(async () => {
   const f = $('#f').files[0]; if (!f) throw new Error('Choose a file');
-  const fd = new FormData(); fd.append('file', f); fd.append('printer_id', printerSel);
-  const j = await api('/api/jobs', fd, true), csd = j.user_type === 'csd';
-  $('#quote').innerHTML = `<div class="card"><h2>3. Confirm</h2>
-    <p><b>${esc(j.file_name)}</b><br>Filament: <b>${j.grams.toFixed(1)} g</b>${j.exact ? '' : ' <span class="err">(rough estimate)</span>'} · Time: ${dur(j.minutes)}</p>
-    <p style="font-size:20px">${csd ? '<b>Free (CSD)</b>' : 'Amount: <b>' + money(j.price) + '</b>'}</p>
-    <div class="row"><button class="ok" onclick="confirmJob(${j.id})">${csd ? 'Confirm print' : 'Pay now'}</button><button class="alt" onclick="cancelJob(${j.id})">Cancel</button></div></div>`;
+  if (bill) { await api(`/api/jobs/${bill.id}/cancel`, {}); bill = null; }
+  const fd = new FormData();
+  fd.append('file', f); fd.append('mode', mode); fd.append('material', $('#pm').value); fd.append('layer', $('#pl').value); fd.append('infill', $('#pi').value);
+  fd.append('copies', $('#pc').value); fd.append('supports', $('#ps').checked); fd.append('printer_id', $('#pp').value);
+  bill = await api('/api/jobs', fd, true);
+  const csd = bill.user_type === 'csd', q = csd ? null : await api(`/api/jobs/${bill.id}/qr`);
+  $('#quote').innerHTML = `<div class="card"><h2>3. Bill</h2>
+    <p><b>${esc(bill.file_name)}</b><br><span class="mute">${esc(bill.material)} · ${bill.layer} mm · ${bill.infill}% infill · ${bill.copies} ${bill.copies > 1 ? 'copies' : 'copy'} · ${bill.supports ? 'with' : 'no'} supports</span></p>
+    <table style="max-width:420px"><tr><th>Estimated weight</th><td><b>${bill.grams.toFixed(1)} g</b>${bill.exact ? '' : ' <span class="mute">(estimate)</span>'}</td></tr>
+      <tr><th>Estimated time</th><td><b>${dur(bill.minutes)}</b></td></tr>
+      <tr><th>Cost</th><td style="font-size:20px"><b>${csd ? 'Free (CSD)' : money(bill.price)}</b></td></tr></table>
+    ${csd ? '' : `<h2 style="margin-top:14px">4. Pay with the QR code</h2><img src="${q.qr}" width="240" alt="UPI QR"><p class="mute">Scan with any UPI app and pay exactly <b>${money(q.amount)}</b> (or pay to <b>${esc(q.upi_id)}</b>).</p>
+      <h2>5. Upload the transaction proof</h2><div class="row"><input type="file" id="proof" accept="image/*,.pdf"></div>
+      <div class="row"><input id="txn" placeholder="UPI transaction ID (optional)" style="min-width:240px"></div>`}
+    <div class="row"><button class="ok" onclick="submitReq()">${csd ? 'Submit request' : '6. Submit request'}</button><button class="alt" onclick="cancelBill()">Cancel</button></div>
+    <p class="mute">Admins are notified, then check material, schedule and print parameters before approving.</p></div>`;
+  $('#quote').scrollIntoView({ behavior: 'smooth' });
 });
-window.cancelJob = run(async id => { await api(`/api/jobs/${id}/cancel`, {}); $('#quote').innerHTML = ''; });
-window.confirmJob = run(async id => {
-  await api(`/api/jobs/${id}/confirm`, {});
-  const j = (await api('/api/jobs')).find(x => x.id === id);
-  if (j.status === 'queued') { alert('Added to the queue!'); return go('hist'); }
-  payBox(id);
+window.cancelBill = run(async () => { if (bill) await api(`/api/jobs/${bill.id}/cancel`, {}); bill = null; $('#quote').innerHTML = ''; });
+window.submitReq = run(async () => {
+  const fd = new FormData(), p = $('#proof');
+  if (p) { if (!p.files[0]) throw new Error('Upload the payment screenshot first'); fd.append('proof', p.files[0]); fd.append('txn_id', $('#txn').value); }
+  await api(`/api/jobs/${bill.id}/submit`, fd, true); bill = null; mode = null;
+  alert('Request submitted. The admins have been notified; you will get a notification when it is approved.'); go('hist');
 });
-window.payBox = run(async id => {
-  const q = await api(`/api/jobs/${id}/qr`);
-  $('#quote').innerHTML = `<div class="card"><h2>Pay ${money(q.amount)}</h2>
-    <img src="${q.qr}" width="240" alt="UPI QR"><p class="mute">Scan with any UPI app (pay exactly ${money(q.amount)}) or pay to <b>${esc(q.upi_id)}</b>.</p>
-    <div class="row"><input id="txn" placeholder="UPI transaction ID" style="min-width:220px"><button onclick="submitTxn(${id})">I have paid</button></div></div>`;
-});
-window.submitTxn = run(async id => { await api(`/api/jobs/${id}/pay`, { txn_id: $('#txn').value }); alert('Submitted. An admin will confirm your payment.'); go('hist'); });
 
 const thumb = j => `<div class="th" onclick="bigPic(${j.id})"><img src="/api/jobs/${j.id}/thumb" loading="lazy" alt="" onerror="this.parentNode.classList.add('none');this.remove()"><span>🧊</span></div>`;
 window.bigPic = id => { const o = document.createElement('div'); o.className = 'ov'; o.onclick = () => o.remove(); o.innerHTML = `<img src="/api/jobs/${id}/thumb" onerror="this.remove()">`; document.body.appendChild(o); };
 const jobsTable = (jobs, adm) => `<div class="tbl"><table><tr><th></th><th>#</th><th>When</th>${adm ? '<th>User</th>' : ''}<th>Printer</th><th>File</th><th>g</th><th>Type</th><th>Price</th><th>Txn</th><th>Status</th><th></th></tr>${jobs.map(j => `<tr>
-  <td>${thumb(j)}</td><td>${j.id}</td><td>${esc(j.created.slice(0, 16))}</td>${adm ? `<td>${esc(j.user_name)}</td>` : ''}<td>${esc(j.printer)}</td><td>${esc(j.file_name)}</td>
-  <td>${j.grams.toFixed(1)}</td><td>${j.user_type}</td><td>${j.user_type === 'csd' ? 'free' : money(j.price)}</td><td>${esc(j.txn_id || '')}</td>
-  <td>${tag(j.status)} <span class="mute">${esc(j.note || '')}</span></td>
-  <td>${j.status === 'pending_payment' && !adm ? `<button onclick="payBox(${j.id});go('print')">Pay</button>` : ''}${adm ? actions(j) : ''}</td></tr>`).join('')}</table></div>`;
+  <td>${thumb(j)}</td><td>${j.id}</td><td>${esc(j.created.slice(0, 16))}</td>${adm ? `<td>${esc(j.user_name)}</td>` : ''}<td>${esc(j.printer)}</td><td>${esc(j.file_name)}${j.material ? `<br><span class="mute" style="font-size:12px">${esc(j.material)} · ${j.layer}mm · ${j.infill}%${j.copies > 1 ? ' · x' + j.copies : ''}</span>` : ''}</td>
+  <td>${j.grams.toFixed(1)}</td><td>${j.user_type}</td><td>${j.user_type === 'csd' ? 'free' : money(j.price)}</td><td>${esc(j.txn_id || '')}${j.has_proof ? ` <a href="/api/jobs/${j.id}/proof" target="_blank">proof</a>` : ''}</td>
+  <td>${tag(j.status)} <span class="mute">${esc(j.note || '')}</span>${j.scheduled ? `<br><span class="mute" style="font-size:12px">scheduled ${esc(j.scheduled.replace('T', ' '))} · ${j.print_mode}</span>` : ''}</td>
+  <td>${adm ? actions(j) : j.status === 'submitted' ? `<button class="alt" onclick="cancelSub(${j.id})">Cancel</button>` : ''}</td></tr>`).join('')}</table></div>`;
 const actions = j => ({
-  payment_submitted: `<button class="ok" onclick="act(${j.id},'approve')">Confirm paid</button> <button class="bad" onclick="act(${j.id},'reject')">Reject</button>`,
-  queued: `<button onclick="act(${j.id},'start')">Start</button> <button class="bad" onclick="act(${j.id},'reject')">Reject</button>`,
+  submitted: `<button class="ok" onclick="reviewJob(${j.id})">Review</button>`,
+  queued: `<button onclick="act(${j.id},'start')">${j.print_mode === 'manual' ? 'Mark printing' : 'Start'}</button> <button class="bad" onclick="act(${j.id},'reject')">Reject</button>`,
   printing: `<button class="ok" onclick="act(${j.id},'done')">Done</button> <button class="bad" onclick="act(${j.id},'failed')">Failed</button>`,
 })[j.status] || '';
+window.cancelSub = run(async id => { if (!confirm('Cancel this request?')) return; await api(`/api/jobs/${id}/cancel`, {}); histView(); });
+window.reviewJob = run(async id => {
+  const [jobs, printers, o] = await Promise.all([api('/api/admin/jobs'), api('/api/printers'), api('/api/options')]), j = jobs.find(x => x.id === id);
+  const m = document.createElement('div'); m.className = 'ov modal';
+  m.innerHTML = `<div class="mbox"><h2>Review request #${j.id}</h2>
+    <div class="row">${thumb(j)}<div><b>${esc(j.file_name)}</b><br><span class="mute">${esc(j.user_name)} · ${j.user_type === 'csd' ? 'CSD project' : 'Personal'} · ${j.grams.toFixed(1)} g · ${dur(j.minutes)}${j.exact ? '' : ' (estimate)'}${j.geo ? ' · part ' + JSON.parse(j.geo).map(Math.round).join('x') + ' mm' : ''}</span></div></div>
+    ${j.user_type === 'csd' ? '' : `<p>Billed: <b>${money(j.price)}</b> · txn <b>${esc(j.txn_id || 'not given')}</b> ${j.has_proof ? `<br><a href="/api/jobs/${j.id}/proof" target="_blank"><img src="/api/jobs/${j.id}/proof" style="max-width:100%;max-height:220px;border-radius:8px;border:1px solid var(--line)" alt="proof" onerror="this.replaceWith('Open proof')"></a>` : ''}<br><span class="mute">Check the amount in your bank / UPI app before approving.</span></p>`}
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">
+      <label class="mute">Printer<br><select id="rp">${printers.map(p => `<option value="${p.id}" ${p.id === j.printer_id ? 'selected' : ''}>${esc(p.name)} (${p.queue} queued)</option>`).join('')}</select></label>
+      <label class="mute">Material<br><select id="rm">${o.materials.map(x => `<option ${x === j.material ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
+      <label class="mute">Layer mm<br><input id="rl" type="number" step="0.01" value="${j.layer ?? 0.2}" style="width:100%"></label>
+      <label class="mute">Infill %<br><input id="ri" type="number" value="${j.infill ?? 15}" style="width:100%"></label>
+      <label class="mute">Schedule<br><input id="rs" type="datetime-local" style="width:100%"></label></div>
+    <div class="row"><label><input type="checkbox" id="rsup" ${j.supports ? 'checked' : ''}> Supports</label>
+      <label><input type="checkbox" id="rok"> <b>Material available</b></label></div>
+    <div class="row"><b>Print:</b> <label><input type="radio" name="rpm" value="auto" checked> Site prints directly</label> <label><input type="radio" name="rpm" value="manual"> Manually on the printer</label></div>
+    <div class="row"><input id="rn" placeholder="Note to user / reject reason" style="width:100%"></div>
+    <div class="row"><button class="ok" onclick="decide(${j.id},'approve')">Approve</button><button class="bad" onclick="decide(${j.id},'reject')">Reject</button><button class="alt" onclick="this.closest('.modal').remove()">Close</button></div></div>`;
+  document.body.appendChild(m);
+});
+window.decide = run(async (id, decision) => {
+  await api(`/api/admin/jobs/${id}/review`, { decision, printer_id: $('#rp').value, material: $('#rm').value, layer: $('#rl').value, infill: $('#ri').value, supports: $('#rsup').checked,
+    scheduled: $('#rs').value, print_mode: document.querySelector('input[name=rpm]:checked').value, material_ok: $('#rok').checked, admin_note: $('#rn').value });
+  document.querySelector('.modal').remove(); adminView();
+});
 window.act = run(async (id, a) => { const note = a === 'reject' ? prompt('Reason?') || '' : ''; await api(`/api/admin/jobs/${id}/${a}`, { note }); adminView(); });
 
 const speedName = n => ({ 1: 'Silent', 2: 'Standard', 3: 'Sport', 4: 'Ludicrous' })[n] || '–';
@@ -125,10 +181,10 @@ async function histView() { $('#view').innerHTML = `<div class="card"><h2>My his
 
 async function adminView() {
   const [printers, jobs, users, stats, s] = await Promise.all([api('/api/printers'), api('/api/admin/jobs'), api('/api/admin/users'), api('/api/admin/stats'), api('/api/settings')]);
-  const waiting = jobs.filter(j => j.status === 'payment_submitted').length;
-  $('#view').innerHTML = `<div class="card"><h2>Totals (completed prints)</h2><div class="tbl"><table><tr><th>Printer</th><th>Jobs</th><th>Filament g</th><th>CSD g (free)</th><th>Hours</th><th>Money</th></tr>
+  const waiting = jobs.filter(j => j.status === 'submitted').length, pending = jobs.filter(j => j.status === 'submitted');
+  $('#view').innerHTML = `${pending.length ? `<div class="card" style="border-color:var(--warn)"><h2>Requests to review (${pending.length})</h2>${jobsTable(pending, true)}</div>` : ''}<div class="card"><h2>Totals (completed prints)</h2><div class="tbl"><table><tr><th>Printer</th><th>Jobs</th><th>Filament g</th><th>CSD g (free)</th><th>Hours</th><th>Money</th></tr>
     ${stats.map(r => `<tr><td>${r.printer}</td><td>${r.jobs}</td><td>${r.grams}</td><td>${r.csd_grams}</td><td>${r.hours}</td><td>${money(r.money)}</td></tr>`).join('')}</table></div></div>
-    <div class="card"><h2>All jobs ${waiting ? `<span class="tag failed">${waiting} payment(s) to confirm</span>` : ''}</h2>${jobsTable(jobs, true)}</div>
+    <div class="card"><h2>All jobs ${waiting ? `<span class="tag failed">${waiting} to review</span>` : ''}</h2>${jobsTable(jobs, true)}</div>
     <div class="card"><h2>Users</h2><div class="tbl"><table><tr><th>Name</th><th>Email</th><th>Type</th><th>Admin</th></tr>${users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td>
       <td><select onchange="setUser(${u.id},{type:this.value})"><option ${u.type === 'individual' ? 'selected' : ''}>individual</option><option ${u.type === 'csd' ? 'selected' : ''}>csd</option></select></td>
       <td><input type="checkbox" ${u.is_admin ? 'checked' : ''} onchange="setUser(${u.id},{is_admin:this.checked})"></td></tr>`).join('')}</table></div></div>

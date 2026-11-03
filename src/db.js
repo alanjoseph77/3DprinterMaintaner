@@ -15,13 +15,18 @@ CREATE TABLE IF NOT EXISTS printers(
 CREATE TABLE IF NOT EXISTS jobs(
   id INTEGER PRIMARY KEY, user_id INTEGER, printer_id INTEGER, file_name TEXT, file_path TEXT,
   grams REAL, minutes REAL, exact INTEGER, price REAL, user_type TEXT,
-  status TEXT,  -- pending_payment | payment_submitted | queued | printing | done | failed | rejected
+  status TEXT,  -- quoted | submitted | queued | printing | done | failed | rejected
   txn_id TEXT, paid_amount REAL, created TEXT DEFAULT CURRENT_TIMESTAMP,
   started TEXT, finished TEXT, note TEXT);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 `);
 
-try { db.exec("ALTER TABLE jobs ADD COLUMN source TEXT DEFAULT 'app'"); } catch {}
+for (const col of ["source TEXT DEFAULT 'app'", 'material TEXT', 'layer REAL', 'infill INTEGER', 'supports INTEGER', 'copies INTEGER', 'geo TEXT',
+  'proof_file TEXT', 'scheduled TEXT', "print_mode TEXT DEFAULT 'auto'", 'material_ok INTEGER', 'admin_note TEXT', 'submitted TEXT'])
+  try { db.exec(`ALTER TABLE jobs ADD COLUMN ${col}`); } catch {}
+db.exec(`CREATE TABLE IF NOT EXISTS notifications(
+  id INTEGER PRIMARY KEY, user_id INTEGER,   -- NULL = for all admins
+  text TEXT, job_id INTEGER, is_read INTEGER DEFAULT 0, created TEXT DEFAULT CURRENT_TIMESTAMP)`);
 const defaults = { rate_per_gram: '5', rate_per_hour: '10', min_price: '10', upi_id: 'yourname@upi', payee: 'Print Lab', csd_gram_limit: '0' };
 for (const [k, v] of Object.entries(defaults))
   db.prepare('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)').run(k, v);

@@ -9,6 +9,19 @@ Web app for sharing two Bambu Lab printers (P1S, P2S).
 - Admin: confirm/reject payments, start/finish jobs, manage users, rates and UPI id, see totals per printer.
 - Full history for every user (own jobs) and for admins (all jobs).
 
+## Request flow (personal use)
+
+1. Log in and choose **Personal** (or **CSD project**, CSD members only, free).
+2. Upload the part (`.stl`; a sliced `.3mf` also works and gives exact numbers).
+3. The site estimates weight and time; the user sets material, layer height, infill, supports, copies, preferred printer.
+4. The bill shows time, weight and cost with a UPI QR code.
+5. The user uploads the payment screenshot (and optionally the transaction ID).
+6. Submit; every admin gets a notification (bell icon).
+7. Admin reviews: checks material availability, schedule, printer and print parameters.
+8. Admin approves: the site prints directly, or printing is done manually. The user gets a notification.
+
+Extra parameter changes: contact the admins and come to CSD.
+
 ## Run
 
     npm install
