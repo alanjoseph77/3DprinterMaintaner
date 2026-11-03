@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS jobs(
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
 `);
 
+for (const col of ['users.csd_status TEXT', 'users.csd_note TEXT', 'users.csd_review TEXT'])
+  try { const [t, c] = col.split('.'); db.exec(`ALTER TABLE ${t} ADD COLUMN ${c}`); } catch {}
+db.exec("UPDATE users SET csd_status='approved' WHERE type='csd' AND is_admin=0 AND csd_status IS NULL");
+db.exec("UPDATE users SET csd_status='none' WHERE csd_status IS NULL");
 for (const col of ["source TEXT DEFAULT 'app'", 'material TEXT', 'layer REAL', 'infill INTEGER', 'supports INTEGER', 'copies INTEGER', 'geo TEXT',
   'proof_file TEXT', 'project_id INTEGER', 'part_name TEXT', 'description TEXT', 'scheduled TEXT', "print_mode TEXT DEFAULT 'auto'", 'material_ok INTEGER', 'admin_note TEXT', 'submitted TEXT'])
   try { db.exec(`ALTER TABLE jobs ADD COLUMN ${col}`); } catch {}

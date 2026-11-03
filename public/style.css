@@ -134,3 +134,5 @@ td[data-label="When"],td[data-label="Started"],td[data-label="Request"]{white-sp
 .badge.printing{background:#e8f0ff;color:#2457c5}.badge.queued{background:#e8f0ff;color:#2457c5}
 .pill{background:var(--acc-soft);color:var(--ink)}
 #view{padding-top:20px}@media(max-width:860px){#view{padding-top:14px}}
+
+.badge.pending{background:var(--warn-soft);color:var(--warn)}.badge.approved{background:var(--ok-soft);color:var(--ok)}

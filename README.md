@@ -9,6 +9,14 @@ Web app for sharing two Bambu Lab printers (P1S, P2S).
 - Admin: confirm/reject payments, start/finish jobs, manage users, rates and UPI id, see totals per printer.
 - Full history for every user (own jobs) and for admins (all jobs).
 
+## Accounts and CSD verification
+
+- The **admin account** is for administration only: it sees Live printers, Printer log and Admin, and cannot submit print requests.
+- Everyone else (including CSD staff) creates a normal account and starts as a regular user (personal requests, paid).
+- CSD staff tick **I am CSD staff** at sign-up (or use **Request verification** later) and give their staff ID or department.
+- An admin checks them under **Admin > CSD staff verification** and clicks **Verify** or **Reject**. Verified staff can submit free **CSD project** requests; the user is notified either way.
+- Admins can also set a user's type manually in Admin > Users.
+
 ## Request flow (personal use)
 
 1. Log in and choose **Personal** (or **CSD project**, CSD members only, free).

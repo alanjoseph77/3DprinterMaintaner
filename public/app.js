@@ -39,7 +39,7 @@ const P = {
 const ic = (n, c = '') => `<svg class="ic ${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ''}</svg>`;
 
 // ---- helpers ----
-const LABEL = { submitted: 'Awaiting review', queued: 'Approved - queued', printing: 'Printing', done: 'Done', failed: 'Failed', rejected: 'Rejected', idle: 'Idle', paused: 'Paused', offline: 'Offline', 'not linked': 'Not linked', finished: 'Finished', pending_payment: 'Awaiting payment' };
+const LABEL = { submitted: 'Awaiting review', queued: 'Approved - queued', printing: 'Printing', done: 'Done', failed: 'Failed', rejected: 'Rejected', idle: 'Idle', paused: 'Paused', offline: 'Offline', 'not linked': 'Not linked', finished: 'Finished', pending_payment: 'Awaiting payment', pending: 'Pending', approved: 'Verified' };
 const tag = s => `<span class="badge ${String(s).replace(/\s+/g, '_')}">${LABEL[s] || esc(s)}</span>`;
 const money = n => '₹' + Number(n || 0).toFixed(2);
 const liveTag = p => !p.live ? tag('not linked') : p.live.online ? tag(p.status) : tag('offline');
@@ -57,19 +57,21 @@ async function init() {
 }
 function render() {
   if (!me) return authView();
-  const items = NAV.filter(n => n[0] !== 'admin' || me.is_admin), cur = items.find(n => n[0] === tab) || items[0];
+  if (me.is_admin && !['live', 'log', 'admin'].includes(tab)) tab = 'admin';      // admin accounts are for administration only
+  if (!me.is_admin && tab === 'admin') tab = 'print';
+  const items = NAV.filter(n => me.is_admin ? ['live', 'log', 'admin'].includes(n[0]) : n[0] !== 'admin'), cur = items.find(n => n[0] === tab) || items[0];
   const btn = n => `<button class="nav ${tab === n[0] ? 'on' : ''}" onclick="go('${n[0]}')">${ic(n[2])}<span>${n[1]}</span></button>`;
   root.innerHTML = `<div class="shell">
     <aside class="side"><div class="brand">${ic('printer')}Print Lab</div>${items.map(n => btn([n[0], n[3], n[2]])).join('')}</aside>
     <div class="main"><header class="top"><div class="brand">${ic('printer')}Print Lab</div><h1>${cur[3]}</h1><div class="grow"></div>
       <div class="who"><button class="icon bell" onclick="toggleBell()" title="Notifications" aria-label="Notifications">${ic('bell')}<b id="bn" hidden></b></button>
-        <div class="chip"><span class="avatar">${esc(me.name.trim().charAt(0).toUpperCase())}</span><span class="nm">${esc(me.name)}</span><span class="pill">${me.type.toUpperCase()}</span></div>
+        <div class="chip"><span class="avatar">${esc(me.name.trim().charAt(0).toUpperCase())}</span><span class="nm">${esc(me.name)}</span><span class="pill">${me.is_admin ? 'ADMIN' : me.type === 'csd' ? 'CSD STAFF' : me.csd_status === 'pending' ? 'PENDING' : 'USER'}</span></div>
         <button class="icon" onclick="logout()" title="Log out" aria-label="Log out">${ic('logout')}</button><div id="bellbox" class="bellbox" hidden></div></div></header>
       <main id="view"></main></div>
     <nav class="tabbar">${items.map(btn).join('')}</nav></div>`;
   pollBell();
   clearInterval(window.liveTimer);
-  ({ print: printView, live: liveView, log: logView, hist: histView, admin: adminView })[items.some(n => n[0] === tab) ? tab : 'print']();
+  ({ print: printView, live: liveView, log: logView, hist: histView, admin: adminView })[tab]();
 }
 document.addEventListener('click', e => { const b = $('#bellbox'); if (b && !b.hidden && !e.target.closest('.bell,#bellbox')) b.hidden = true; });
 let lastUnread = 0, bellTimer = null, bellItems = [];
@@ -78,6 +80,7 @@ async function pollBell() {
   const n = await api('/api/notifications'), b = $('#bn'); if (!b) return;
   bellItems = n.items; b.hidden = !n.unread; b.textContent = n.unread;
   if (n.unread > lastUnread && n.items[0] && window.Notification && Notification.permission === 'granted') new Notification('Print Lab', { body: n.items[0].text });
+  if (n.unread > lastUnread && !me.is_admin) { me = await api('/api/me'); if (tab === 'print' && !mode && !document.querySelector('#f')) printView(); }
   lastUnread = n.unread;
   if (me.is_admin && tab === 'admin' && n.unread && !document.querySelector('.modal')) adminView();   // new request arrived: refresh the list
 }
@@ -96,20 +99,28 @@ function authView() {
   root.innerHTML = `<div class="authwrap"><form class="card auth" onsubmit="auth(event)"><div class="logo">${ic('printer')}</div><h1>Print Lab</h1><p class="mute">Request 3D prints on the lab printers</p>
     <div class="seg"><button type="button" class="${reg ? '' : 'on'}" onclick="setAuth('login')">Log in</button><button type="button" class="${reg ? 'on' : ''}" onclick="setAuth('register')">Create account</button></div>
     <div class="fields">${reg ? field('Name', '<input id="n" autocomplete="name" required>') : ''}${field('Email', '<input id="e" type="email" autocomplete="email" required>')}
-      ${field('Password' + (reg ? ' (6+ characters)' : ''), `<input id="p" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" minlength="${reg ? 6 : 1}" required>`)}</div>
+      ${field('Password' + (reg ? ' (6+ characters)' : ''), `<input id="p" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" minlength="${reg ? 6 : 1}" required>`)}
+      ${reg ? `<label class="chk"><input type="checkbox" id="cc" onchange="$('#cnw').hidden=!this.checked"> I am CSD staff (an admin will verify this)</label>
+      <div id="cnw" hidden>${field('Staff ID or department', '<input id="cs" maxlength="200">')}</div>` : ''}</div>
     <button style="width:100%">${reg ? 'Create account' : 'Log in'}</button></form></div>`;
 }
 window.setAuth = m => { authMode = m; authView(); };
-window.auth = run(async ev => { ev.preventDefault(); me = await api('/api/' + authMode, { name: $('#n')?.value, email: $('#e').value, password: $('#p').value }); render(); });
+window.auth = run(async ev => { ev.preventDefault(); me = await api('/api/' + authMode, { name: $('#n')?.value, email: $('#e').value, password: $('#p').value, csd_claim: !!$('#cc')?.checked, csd_note: $('#cs')?.value }); if (me.is_admin) tab = 'admin'; render(); });
 
 // ---- new request ----
 let mode = null, bill = null;
 window.pickMode = m => { mode = m; bill = null; printView(); };
+const csdCard = () => me.type === 'csd' ? '' : me.csd_status === 'pending'
+  ? `<div class="card"><div class="ch">${ic('clock')}<h2>CSD staff verification pending</h2></div><p class="mute" style="margin:0">An admin will check that you are CSD staff (${esc(me.csd_note || '')}). You will get a notification. Until then you can submit personal requests.</p></div>`
+  : `<div class="card"><div class="ch">${ic('users')}<h2>Are you CSD staff?</h2></div>${me.csd_status === 'rejected' ? `<p class="err small">Your last request was not approved${me.csd_review ? ': ' + esc(me.csd_review) : '.'}</p>` : ''}
+    <p class="mute small">Verified CSD staff can submit free CSD project requests. An admin checks your details before approving.</p>
+    <div class="row"><input id="csn" maxlength="200" placeholder="Staff ID or department" style="max-width:320px"><button onclick="requestCsd()">${ic('check', 'sm')} Request verification</button></div></div>`;
+window.requestCsd = run(async () => { await api('/api/me/csd-request', { note: $('#csn').value }); me = await api('/api/me'); toast('Request sent. An admin will verify your account.'); render(); });
 async function printView() {
   const canCsd = me.type === 'csd';
-  $('#view').innerHTML = `<div class="card"><div class="ch"><span class="num">1</span><h2>What is this print for?</h2></div><div class="choices">
+  $('#view').innerHTML = `${csdCard()}<div class="card"><div class="ch"><span class="num">1</span><h2>What is this print for?</h2></div><div class="choices">
     <button class="choice ${mode === 'personal' ? 'sel' : ''}" onclick="pickMode('personal')">${ic('user')}<span><b>Personal</b><span class="mute">Pay by UPI QR. Admins approve after checking your payment.</span></span></button>
-    <button class="choice ${mode === 'csd' ? 'sel' : ''} ${canCsd ? '' : 'dis'}" onclick="${canCsd ? "pickMode('csd')" : "toast('CSD projects are for CSD members. Ask an admin to mark your account as CSD, or choose Personal.', 'err')"}">${ic('users')}<span><b>CSD project</b><span class="mute">${canCsd ? 'Free for CSD members. Admins approve.' : 'CSD members only.'}</span></span></button></div></div>
+    <button class="choice ${mode === 'csd' ? 'sel' : ''} ${canCsd ? '' : 'dis'}" onclick="${canCsd ? "pickMode('csd')" : `toast('${me.csd_status === 'pending' ? 'Your CSD verification is waiting for an admin.' : 'CSD projects are for verified CSD staff. Request verification above, or choose Personal.'}', 'err')`}">${ic('users')}<span><b>CSD project</b><span class="mute">${canCsd ? 'Free for verified CSD staff. Admins approve.' : me.csd_status === 'pending' ? 'Waiting for admin verification.' : 'Verified CSD staff only.'}</span></span></button></div></div>
     <div id="step2"></div><div id="quote"></div>`;
   if (!mode) return;
   const [printers, s, o, projects] = await Promise.all([api('/api/printers'), api('/api/settings'), api('/api/options'), api('/api/projects')]);
@@ -238,12 +249,15 @@ async function histView() { $('#view').innerHTML = `<div class="card"><div class
 const SET = { rate_per_gram: ['Rate per gram (₹)', 'number'], rate_per_hour: ['Rate per hour (₹)', 'number'], min_price: ['Minimum price (₹)', 'number'], upi_id: ['UPI ID for payments', 'text'], payee: ['Payee name (shown in the UPI app)', 'text'], csd_gram_limit: ['CSD limit per job (g, 0 = none)', 'number'] };
 async function adminView() {
   const [printers, projects, jobs, users, stats, s] = await Promise.all([api('/api/printers'), api('/api/projects'), api('/api/admin/jobs'), api('/api/admin/users'), api('/api/admin/stats'), api('/api/settings')]);
-  const pending = jobs.filter(j => j.status === 'submitted');
-  $('#view').innerHTML = `${pending.length ? `<div class="card warn"><div class="ch">${ic('inbox')}<h2>Requests to review</h2><span class="badge submitted">${pending.length} waiting</span></div>${jobsTable(pending, true)}</div>` : ''}
+  const pending = jobs.filter(j => j.status === 'submitted'), verify = users.filter(u => u.csd_status === 'pending' && !u.is_admin);
+  $('#view').innerHTML = `${verify.length ? `<div class="card warn"><div class="ch">${ic('users')}<h2>CSD staff verification</h2><span class="badge submitted">${verify.length} waiting</span></div><p class="mute small">Check that these people are really CSD staff before approving.</p>
+      <div class="tbl"><table class="stack"><thead><tr><th>Name</th><th>Email</th><th>Staff ID / department</th><th>Registered</th><th></th></tr></thead><tbody>${verify.map(u => `<tr><td data-label="Name"><b>${esc(u.name)}</b></td><td data-label="Email">${esc(u.email)}</td><td data-label="Staff ID / dept">${esc(u.csd_note || '–')}</td><td data-label="Registered">${esc((u.created || '').slice(0, 10))}</td>
+        <td class="act" data-label=""><button class="ok sm" onclick="csdDecide(${u.id},'approve')">${ic('check', 'sm')} Verify</button><button class="bad sm" onclick="csdDecide(${u.id},'reject')">Reject</button></td></tr>`).join('')}</tbody></table></div></div>` : ''}
+    ${pending.length ? `<div class="card warn"><div class="ch">${ic('inbox')}<h2>Requests to review</h2><span class="badge submitted">${pending.length} waiting</span></div>${jobsTable(pending, true)}</div>` : ''}
     <div class="card"><div class="ch">${ic('gauge')}<h2>Totals</h2><span class="sub">Completed prints</span></div><div class="tbl"><table class="stack"><thead><tr><th>Printer</th><th>Jobs</th><th>Filament (g)</th><th>CSD (g, free)</th><th>Hours</th><th>Money</th></tr></thead><tbody>
       ${stats.map(r => `<tr><td data-label="Printer"><b>${r.printer}</b></td><td data-label="Jobs">${r.jobs}</td><td data-label="Filament (g)">${r.grams}</td><td data-label="CSD (g, free)">${r.csd_grams}</td><td data-label="Hours">${r.hours}</td><td data-label="Money">${money(r.money)}</td></tr>`).join('')}</tbody></table></div></div>
     <div class="card"><div class="ch">${ic('list')}<h2>All requests</h2></div>${jobsTable(jobs, true)}</div>
-    <div class="card"><div class="ch">${ic('users')}<h2>Users</h2><span class="sub">CSD members print free</span></div><div class="tbl"><table class="stack"><thead><tr><th>Name</th><th>Email</th><th>Type</th><th>Admin</th></tr></thead><tbody>${users.map(u => `<tr><td data-label="Name">${esc(u.name)}</td><td data-label="Email">${esc(u.email)}</td>
+    <div class="card"><div class="ch">${ic('users')}<h2>Users</h2><span class="sub">Verified CSD staff can submit free CSD projects</span></div><div class="tbl"><table class="stack"><thead><tr><th>Name</th><th>Email</th><th>CSD staff</th><th>Type</th><th>Admin</th></tr></thead><tbody>${users.map(u => `<tr><td data-label="Name">${esc(u.name)}</td><td data-label="Email">${esc(u.email)}</td><td data-label="CSD staff">${u.is_admin ? '–' : u.csd_status === 'none' ? '–' : tag(u.csd_status)}${u.csd_note && !u.is_admin ? `<br><span class="mute small">${esc(u.csd_note)}</span>` : ''}</td>
       <td data-label="Type"><select style="width:auto" onchange="setUser(${u.id},{type:this.value})"><option value="individual" ${u.type === 'individual' ? 'selected' : ''}>Individual</option><option value="csd" ${u.type === 'csd' ? 'selected' : ''}>CSD</option></select></td>
       <td data-label="Admin"><input type="checkbox" class="switch" ${u.is_admin ? 'checked' : ''} onchange="setUser(${u.id},{is_admin:this.checked})"></td></tr>`).join('')}</tbody></table></div></div>
     <div class="card"><div class="ch">${ic('layers')}<h2>CSD projects</h2></div><p class="mute small">CSD members pick one of these when they submit a project request.</p>
@@ -262,7 +276,8 @@ window.rawData = run(async id => { const d = await api(`/api/admin/printers/${id
 window.ftpFiles = run(async id => { const w = window.open('', '_blank'); w.document.write('Checking printer files...'); try { const d = await api(`/api/admin/printers/${id}/files`); w.document.body.innerHTML = '<pre>' + esc(JSON.stringify(d, null, 2)) + '</pre>'; } catch (e) { w.document.body.innerHTML = '<pre>Error: ' + esc(e.message) + '</pre>'; } });
 window.addProject = run(async () => { await api('/api/admin/projects', { name: $('#np').value }); adminView(); });
 window.rmProject = run(async id => { if (confirm('Remove this project from the list? Existing requests keep it.')) { await api(`/api/admin/projects/${id}/remove`, {}); adminView(); } });
-window.setUser = run(async (id, b) => { await api('/api/admin/users/' + id, b); toast('User updated'); });
+window.setUser = run(async (id, b) => { await api('/api/admin/users/' + id, b); toast('User updated'); adminView(); });
+window.csdDecide = run(async (id, decision) => { const note = decision === 'reject' ? prompt('Reason (optional)') || '' : ''; await api(`/api/admin/users/${id}/csd`, { decision, note }); toast(decision === 'approve' ? 'Verified as CSD staff' : 'Verification rejected'); adminView(); });
 window.saveSettings = run(async keys => { await api('/api/admin/settings', Object.fromEntries(keys.map(k => [k, $('#s_' + k).value]))); toast('Settings saved'); });
 
 init();

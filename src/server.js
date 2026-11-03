@@ -34,12 +34,15 @@ const login = (res, id) => {
   db.prepare('INSERT INTO sessions VALUES(?,?)').run(token, id);
   res.setHeader('Set-Cookie', `token=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000`);
 };
-const pub = u => u && { id: u.id, name: u.name, email: u.email, type: u.type, is_admin: !!u.is_admin };
+const pub = u => u && { id: u.id, name: u.name, email: u.email, type: u.type, is_admin: !!u.is_admin, csd_status: u.csd_status || 'none', csd_note: u.csd_note, csd_review: u.csd_review };
 
 app.post('/api/register', wrap((req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password || password.length < 6) throw new Error('Name, email and a 6+ char password are required');
-  const r = db.prepare('INSERT INTO users(name,email,pass,is_admin) VALUES(?,?,?,?)').run(name, email.toLowerCase(), hash(password), 0);
+  const claim = req.body.csd_claim === true || req.body.csd_claim === 'true', note = String(req.body.csd_note || '').trim().slice(0, 200);
+  if (claim && !note) throw new Error('Enter your staff ID or department so an admin can verify you');
+  const r = db.prepare('INSERT INTO users(name,email,pass,is_admin,csd_status,csd_note) VALUES(?,?,?,?,?,?)').run(name, email.toLowerCase(), hash(password), 0, claim ? 'pending' : 'none', claim ? note : null);
+  if (claim) notifyAdmins(`CSD staff verification requested by ${name} (${email.toLowerCase()}): ${note}`);
   login(res, r.lastInsertRowid);
   res.json(pub(db.prepare('SELECT * FROM users WHERE id=?').get(r.lastInsertRowid)));
 }));
@@ -50,6 +53,17 @@ app.post('/api/login', wrap((req, res) => {
 }));
 app.post('/api/logout', (req, res) => { const t = /token=([^;]+)/.exec(req.headers.cookie || '')?.[1]; if (t) db.prepare('DELETE FROM sessions WHERE token=?').run(t); res.json({}); });
 app.get('/api/me', (req, res) => res.json(pub(req.user)));
+// an existing account asks the admins to verify that it belongs to CSD staff
+app.post('/api/me/csd-request', auth, wrap((req, res) => {
+  const u = req.user, note = String(req.body.note || '').trim().slice(0, 200);
+  if (u.is_admin) throw new Error('Admin accounts do not need verification');
+  if (u.type === 'csd') throw new Error('Your account is already verified as CSD staff');
+  if (u.csd_status === 'pending') throw new Error('Your request is already waiting for an admin');
+  if (!note) throw new Error('Enter your staff ID or department so an admin can verify you');
+  db.prepare("UPDATE users SET csd_status='pending',csd_note=?,csd_review=NULL WHERE id=?").run(note, u.id);
+  notifyAdmins(`CSD staff verification requested by ${u.name} (${u.email}): ${note}`);
+  res.json({});
+}));
 
 // ---- printers / settings ----
 app.get('/api/printers', auth, (req, res) => res.json(db.prepare(`
@@ -84,8 +98,9 @@ app.get('/api/options', auth, (_req, res) => res.json({ materials: Object.keys(M
 app.post('/api/jobs', auth, upload.single('file'), wrap((req, res) => {
   const f = req.file; if (!f) throw new Error('Choose a file');
   try {
+    if (req.user.is_admin) throw new Error('Admin accounts are for administration only. Log in with your own user account to request a print.');
     const mode = req.body.mode === 'csd' ? 'csd' : 'personal';
-    if (mode === 'csd' && req.user.type !== 'csd') throw new Error('CSD project requests are for CSD members only. Ask an admin to mark your account as CSD, or choose Personal.');
+    if (mode === 'csd' && req.user.type !== 'csd') throw new Error(req.user.csd_status === 'pending' ? 'Your CSD staff verification is still waiting for an admin.' : 'CSD project requests are for verified CSD staff. Request verification first, or choose Personal.');
     if (!/\.(3mf|stl)$/i.test(f.originalname)) throw new Error('Upload the part as an .stl file (or a sliced .3mf from Bambu Studio)');
     const p = checkParams(req.body);
     let project = null, partName = String(req.body.part_name || '').trim().slice(0, 120), desc = String(req.body.description || '').trim().slice(0, 1000);
@@ -182,11 +197,27 @@ app.get('/api/jobs', auth, (req, res) => res.json(db.prepare(`${JOBS} WHERE j.us
 app.get('/api/printer-log', auth, (_req, res) => res.json(db.prepare(`${JOBS} WHERE j.status IN ('printing','done','failed') ORDER BY COALESCE(j.started,j.created) DESC LIMIT 300`).all()
   .map(({ email, txn_id, paid_amount, price, ...j }) => j)));
 app.get('/api/admin/jobs', auth, admin, (_req, res) => res.json(db.prepare(`${JOBS} WHERE j.status<>'quoted' ORDER BY j.id DESC`).all()));
-app.get('/api/admin/users', auth, admin, (_req, res) => res.json(db.prepare('SELECT id,name,email,type,is_admin FROM users ORDER BY id').all()));
+app.get('/api/admin/users', auth, admin, (_req, res) => res.json(db.prepare('SELECT id,name,email,type,is_admin,csd_status,csd_note,csd_review,created FROM users ORDER BY id').all()));
 app.post('/api/admin/users/:id', auth, admin, wrap((req, res) => {
   const { type, is_admin } = req.body;
-  if (type) { if (!['csd', 'individual'].includes(type)) throw new Error('Bad type'); db.prepare('UPDATE users SET type=? WHERE id=?').run(type, req.params.id); }
+  if (type) {
+    if (!['csd', 'individual'].includes(type)) throw new Error('Bad type');
+    db.prepare('UPDATE users SET type=?,csd_status=? WHERE id=?').run(type, type === 'csd' ? 'approved' : 'none', req.params.id);
+  }
   if (is_admin !== undefined) db.prepare('UPDATE users SET is_admin=? WHERE id=?').run(is_admin ? 1 : 0, req.params.id);
+  res.json({});
+}));
+// admin verifies (or refuses) that an account belongs to CSD staff
+app.post('/api/admin/users/:id/csd', auth, admin, wrap((req, res) => {
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.params.id); if (!u) throw new Error('User not found');
+  const note = String(req.body.note || '').trim().slice(0, 200);
+  if (req.body.decision === 'approve') {
+    db.prepare("UPDATE users SET type='csd',csd_status='approved',csd_review=? WHERE id=?").run(note || null, u.id);
+    notify(u.id, 'You are verified as CSD staff. You can now submit CSD project requests.');
+  } else if (req.body.decision === 'reject') {
+    db.prepare("UPDATE users SET type='individual',csd_status='rejected',csd_review=? WHERE id=?").run(note || null, u.id);
+    notify(u.id, `Your CSD staff verification was not approved${note ? ': ' + note : '.'} You can still submit personal requests.`);
+  } else throw new Error('Choose approve or reject');
   res.json({});
 }));
 app.post('/api/admin/settings', auth, admin, wrap((req, res) => {
