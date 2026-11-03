@@ -26,7 +26,12 @@ function trackJobs(id, cur) {
   const t = track.get(id);
   if (running && !t) {
     const name = cur.subtask_name || cur.gcode_file || 'Unknown print';
-    let job = db.prepare("SELECT * FROM jobs WHERE printer_id=? AND status='printing' ORDER BY id DESC").get(id);
+    // a project downloaded with the "Bambu Studio" button and printed by hand carries its job number
+    const tagged = /PrintLab-(\d+)/.exec(name)?.[1];
+    if (tagged && db.prepare("UPDATE jobs SET status='printing',printer_id=?,started=COALESCE(started,datetime('now')) WHERE id=? AND status IN ('queued','printing')").run(id, tagged).changes)
+      db.prepare("UPDATE jobs SET status='queued',started=NULL WHERE printer_id=? AND status='printing' AND id<>? AND source='app'").run(id, tagged);   // undo a stale "printing" mark
+    let job = tagged && db.prepare("SELECT * FROM jobs WHERE id=? AND status='printing'").get(tagged) ||
+      db.prepare("SELECT * FROM jobs WHERE printer_id=? AND status='printing' ORDER BY id DESC").get(id);
     if (!job) {
       const r = db.prepare("INSERT INTO jobs(user_id,printer_id,file_name,grams,minutes,exact,price,user_type,status,source,started) VALUES(NULL,?,?,0,0,0,0,'direct','printing','printer',datetime('now'))").run(id, name);
       job = { id: Number(r.lastInsertRowid) };
@@ -117,8 +122,21 @@ const info = id => {
   return { online: !!l.online, error: l.error || null, state: l.gcode_state || null, percent: l.mc_percent ?? null, remaining_min: l.mc_remaining_time ?? null,
     nozzle: l.nozzle_temper ?? null, bed: l.bed_temper ?? null, file: l.subtask_name || l.gcode_file || null, layer: l.layer_num ?? null, total_layers: l.total_layer_num ?? null,
     chamber: l.chamber_temper ?? null, speed: l.spd_lvl ?? null, speed_pct: l.spd_mag ?? null, wifi: l.wifi_signal ?? null, errors: Array.isArray(l.hms) ? l.hms.length : 0,
-    gcode_file: l.gcode_file || null, updated: l.updated || null };
+    gcode_file: l.gcode_file || null, sdcard: !!l.sdcard, updated: l.updated || null };
 };
 const raw = id => live.get(id) || null;
 const start = () => db.prepare('SELECT * FROM printers').all().forEach(connect);
-module.exports = { connect, disconnect, info, raw, start, diagnose, _apply: apply };
+
+// Print control: put a file on the printer's storage, send a command on its request topic.
+async function upload(id, local, remote) {
+  const p = db.prepare('SELECT * FROM printers WHERE id=?').get(id);
+  if (!p?.ip || !p.access_code) throw new Error('Printer is not configured');
+  const c = await ftpClient(p);
+  try { await c.uploadFrom(local, '/' + remote); } catch (e) { throw new Error(`Upload to ${p.name} failed: ${e.message}`); } finally { c.close(); }
+}
+function command(id, payload) {
+  const c = clients.get(id), p = db.prepare('SELECT * FROM printers WHERE id=?').get(id);
+  if (!c?.connected) return Promise.reject(new Error(`${p?.name || 'Printer'} is not connected`));
+  return new Promise((ok, fail) => c.publish(`device/${p.serial}/request`, JSON.stringify(payload), { qos: 1 }, e => e ? fail(e) : ok()));
+}
+module.exports = { connect, disconnect, info, raw, start, diagnose, upload, command, _apply: apply };

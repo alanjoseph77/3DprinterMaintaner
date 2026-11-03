@@ -214,6 +214,10 @@ app.post('/api/admin/jobs/:id/review', auth, admin, wrap((req, res) => {
   notify(j.user_id, `Your request #${j.id} is approved: ${printer.name}${b.scheduled ? ', scheduled ' + String(b.scheduled).replace('T', ' ') : ''}, ${b.print_mode === 'auto' ? 'printed by the site' : 'printed manually'}.${note ? ' Note: ' + note : ''}`, j.id);
   res.json({});
 }));
+// Print by hand: the uploaded file goes into Bambu Studio (download, or opened on this PC); the admin prints from there
+const approved = id => db.prepare("SELECT * FROM jobs WHERE id=? AND status IN ('queued','printing')").get(id) || (() => { throw new Error('Only approved jobs can be opened in Bambu Studio'); })();
+app.get('/api/admin/jobs/:id/project', auth, admin, wrap((req, res) => { const { file, name } = driver.upload(approved(req.params.id)); res.download(require('node:path').resolve(file), name); }));
+app.post('/api/admin/jobs/:id/studio', auth, admin, wrap((req, res) => { driver.openInStudio(approved(req.params.id)); res.json({}); }));
 app.post('/api/admin/jobs/:id/:action', auth, admin, wrap(async (req, res) => {
   const j = db.prepare('SELECT * FROM jobs WHERE id=?').get(req.params.id); if (!j) throw new Error('Not found');
   const a = req.params.action, now = "datetime('now')";

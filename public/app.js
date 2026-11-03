@@ -173,11 +173,33 @@ const jobsTable = (jobs, adm) => !jobs.length ? empty('inbox', 'Nothing here yet
   <td class="act" data-label="">${adm ? actions(j) : j.status === 'submitted' ? `<button class="alt sm" onclick="cancelSub(${j.id})">Cancel</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`;
 const actions = j => ({
   submitted: `<button class="ok sm" onclick="reviewJob(${j.id})">Review</button>`,
-  queued: `<button class="sm" onclick="act(${j.id},'start')">${ic('play', 'sm')} ${j.print_mode === 'manual' ? 'Mark printing' : 'Start'}</button><button class="bad sm" onclick="act(${j.id},'reject')">Reject</button>`,
+  queued: `<button class="sm" onclick="act(${j.id},'start')">${ic('play', 'sm')} ${j.print_mode === 'manual' ? 'Mark printing' : 'Start'}</button><button class="alt sm" onclick="openStudio(${j.id})" title="Opens the uploaded file in Bambu Studio on the server laptop; set it up and press Print there">Open in Bambu Studio</button><button class="alt sm" onclick="studio(${j.id})" title="Download the uploaded file to open in Bambu Studio on this PC">Download</button><button class="bad sm" onclick="act(${j.id},'reject')">Reject</button>`,
   printing: `<button class="ok sm" onclick="act(${j.id},'done')">Done</button><button class="bad sm" onclick="act(${j.id},'failed')">Failed</button>`,
 })[j.status] || '';
 window.cancelSub = run(async id => { if (!confirm('Cancel this request?')) return; await api(`/api/jobs/${id}/cancel`, {}); histView(); });
-window.act = run(async (id, a) => { const note = a === 'reject' ? prompt('Reason?') || '' : ''; await api(`/api/admin/jobs/${id}/${a}`, { note }); adminView(); });
+window.act = run(async (id, a) => {
+  const note = a === 'reject' ? prompt('Reason?') || '' : '';
+  if (a === 'start') toast('Preparing the print (slicing and sending to the printer can take a minute)...');
+  await api(`/api/admin/jobs/${id}/${a}`, { note });
+  if (a === 'start') toast(`Job #${id} started`);
+  adminView();
+});
+
+// The uploaded file for printing by hand in Bambu Studio; the print is linked to the job when it starts on the printer
+window.studio = run(async id => {
+  const r = await fetch(`/api/admin/jobs/${id}/project`);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not prepare the file');
+  const cd = r.headers.get('Content-Disposition') || '';
+  const name = decodeURIComponent(/filename\*=UTF-8''([^;]+)/.exec(cd)?.[1] || '') || /filename="([^"]+)"/.exec(cd)?.[1] || `PrintLab-${id}.3mf`;
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await r.blob()), download: name });
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  toast('Downloaded. Open it in Bambu Studio, set it up and press Print. The job turns to Printing on its own.');
+});
+
+window.openStudio = run(async id => {
+  await api(`/api/admin/jobs/${id}/studio`, {});
+  toast('Opened in Bambu Studio on the server laptop. Set it up and press Print there.');
+});
 
 window.reviewJob = run(async id => {
   const [jobs, printers, o] = await Promise.all([api('/api/admin/jobs'), api('/api/printers'), api('/api/options')]), j = jobs.find(x => x.id === id);
@@ -235,7 +257,8 @@ async function logView() {
 async function histView() { $('#view').innerHTML = `<div class="card"><div class="ch">${ic('clock')}<h2>My requests</h2></div>${jobsTable(await api('/api/jobs'))}</div>`; }
 
 // ---- admin ----
-const SET = { rate_per_gram: ['Rate per gram (₹)', 'number'], rate_per_hour: ['Rate per hour (₹)', 'number'], min_price: ['Minimum price (₹)', 'number'], upi_id: ['UPI ID for payments', 'text'], payee: ['Payee name (shown in the UPI app)', 'text'], csd_gram_limit: ['CSD limit per job (g, 0 = none)', 'number'] };
+const SET = { rate_per_gram: ['Rate per gram (₹)', 'number'], rate_per_hour: ['Rate per hour (₹)', 'number'], min_price: ['Minimum price (₹)', 'number'], upi_id: ['UPI ID for payments', 'text'], payee: ['Payee name (shown in the UPI app)', 'text'], csd_gram_limit: ['CSD limit per job (g, 0 = none)', 'number'],
+  slicer_path: ['Bambu Studio path (empty = C:\\Program Files\\Bambu Studio\\bambu-studio.exe)', 'text'], use_ams: ['Feed filament from the AMS (1 = yes, 0 = external spool)', 'number'] };
 async function adminView() {
   const [printers, projects, jobs, users, stats, s] = await Promise.all([api('/api/printers'), api('/api/projects'), api('/api/admin/jobs'), api('/api/admin/users'), api('/api/admin/stats'), api('/api/settings')]);
   const pending = jobs.filter(j => j.status === 'submitted');

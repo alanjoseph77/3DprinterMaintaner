@@ -48,8 +48,17 @@ online/idle/printing, progress, temperatures, and marks the running job done/fai
 
 ## Printer control
 
-`src/printer.js` is a mock. Real start (MQTT + FTPS over LAN, needs LAN mode / Developer Mode on the P1S and P2S)
-is the next step; per-printer `ip`, `serial`, `access_code` columns already exist.
+Pressing **Start** on an approved job (print mode "site prints") sends it to the printer (`src/printer.js`):
+
+1. A sliced `.3mf` is used as-is. An `.stl` is sliced on the server with the **Bambu Studio** command line, using
+   Bambu's own profiles for that printer, material and layer height, with the job's infill, supports and copies.
+2. The `.gcode.3mf` is uploaded to the printer over FTPS (port 990), then started over MQTT (port 8883).
+3. The job's grams, time and preview picture are updated from the real slice; the agreed price does not change.
+
+Needs: Bambu Studio installed on the server PC (path under Admin > Settings, default
+`C:\Program Files\Bambu Studio\bambu-studio.exe`), and the printer connected under Admin > Printer connections
+(LAN Only Mode, and Developer Mode on newer firmware). Set "Feed filament from the AMS" to 1 if the printer uses an AMS.
+Jobs approved as "manual" are not sent; "Mark printing" only records that you started it on the printer.
 
 ## Printer log pictures
 

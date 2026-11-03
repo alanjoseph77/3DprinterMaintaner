@@ -28,7 +28,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS projects(id INTEGER PRIMARY KEY, name TEXT U
 CREATE TABLE IF NOT EXISTS notifications(
   id INTEGER PRIMARY KEY, user_id INTEGER,   -- NULL = for all admins
   text TEXT, job_id INTEGER, is_read INTEGER DEFAULT 0, created TEXT DEFAULT CURRENT_TIMESTAMP)`);
-const defaults = { rate_per_gram: '5', rate_per_hour: '10', min_price: '10', upi_id: 'yourname@upi', payee: 'Print Lab', csd_gram_limit: '0' };
+const defaults = { rate_per_gram: '5', rate_per_hour: '10', min_price: '10', upi_id: 'yourname@upi', payee: 'Print Lab', csd_gram_limit: '0', slicer_path: '', use_ams: '0' };
 for (const [k, v] of Object.entries(defaults))
   db.prepare('INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)').run(k, v);
 for (const n of ['P1S', 'P2S'])
