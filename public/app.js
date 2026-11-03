@@ -55,9 +55,10 @@ async function init() {
   try { me = await api('/api/me'); render(); }
   catch (e) { root.innerHTML = `<div class="authwrap"><div class="card auth"><div class="logo">${ic('alert')}</div><h1>Cannot reach the server</h1><p class="err" style="text-align:center">${esc(e.message)}</p><p class="mute">Check that <code>npm start</code> is still running in the terminal, then press Ctrl+F5.</p></div></div>`; }
 }
+const ADMIN_TABS = ['live', 'log', 'admin'];   // other users only get New print and My history
 function render() {
   if (!me) return authView();
-  const items = NAV.filter(n => n[0] !== 'admin' || me.is_admin), cur = items.find(n => n[0] === tab) || items[0];
+  const items = NAV.filter(n => me.is_admin || !ADMIN_TABS.includes(n[0])), cur = items.find(n => n[0] === tab) || items[0];
   const btn = n => `<button class="nav ${tab === n[0] ? 'on' : ''}" onclick="go('${n[0]}')">${ic(n[2])}<span>${n[1]}</span></button>`;
   root.innerHTML = `<div class="shell">
     <aside class="side"><div class="brand">${ic('printer')}Print Lab</div>${items.map(n => btn([n[0], n[3], n[2]])).join('')}</aside>
@@ -112,7 +113,7 @@ async function printView() {
     <button class="choice ${mode === 'csd' ? 'sel' : ''} ${canCsd ? '' : 'dis'}" onclick="${canCsd ? "pickMode('csd')" : "toast('CSD projects are for CSD members. Ask an admin to mark your account as CSD, or choose Personal.', 'err')"}">${ic('users')}<span><b>CSD project</b><span class="mute">${canCsd ? 'Free for CSD members. Admins approve.' : 'CSD members only.'}</span></span></button></div></div>
     <div id="step2"></div><div id="quote"></div>`;
   if (!mode) return;
-  const [printers, s, o, projects] = await Promise.all([api('/api/printers'), api('/api/settings'), api('/api/options'), api('/api/projects')]);
+  const [printers, s, o, projects] = await Promise.all([me.is_admin ? api('/api/printers') : [], api('/api/settings'), api('/api/options'), api('/api/projects')]);
   $('#step2').innerHTML = `<div class="card"><div class="ch"><span class="num">2</span><h2>Upload the part and set print parameters</h2></div>
     ${mode === 'csd' ? `<div class="fields">${field('Project', `<select id="cp">${projects.length ? projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('') : `<option value="">${me.is_admin ? 'No projects yet - add one under Admin > CSD projects' : 'No projects yet - ask an admin to add one'}</option>`}</select>`)}
       ${field('Part name', '<input id="cn" maxlength="120" placeholder="e.g. Sensor bracket">')}</div>
@@ -123,7 +124,7 @@ async function printView() {
       ${field('Layer height (mm)', '<select id="pl"><option>0.12</option><option>0.16</option><option selected>0.20</option><option>0.24</option><option>0.28</option></select>')}
       ${field('Infill (%)', '<input id="pi" type="number" min="0" max="100" value="15" inputmode="numeric">')}
       ${field('Copies', '<input id="pc" type="number" min="1" max="20" value="1" inputmode="numeric">')}
-      ${field('Printer', `<select id="pp"><option value="">Any (admin decides)</option>${printers.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>`)}</div>
+      ${me.is_admin ? field('Printer', `<select id="pp"><option value="">Least busy</option>${printers.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>`) : ''}</div>
     <label class="chk"><input type="checkbox" id="ps"> Needs supports</label>
     <p class="mute small" style="margin-top:12px">Rate: ${money(s.rate_per_gram)}/g + ${money(s.rate_per_hour)}/hour, minimum ${money(s.min_price)}. Extra parameter changes: contact the admins and come to CSD.</p>
     <button onclick="getBill()">${ic('gauge', 'sm')} Get estimate</button></div>`;
@@ -133,7 +134,7 @@ window.getBill = run(async () => {
   if (bill) { await api(`/api/jobs/${bill.id}/cancel`, {}); bill = null; }
   const fd = new FormData();
   fd.append('file', f); fd.append('mode', mode); fd.append('material', $('#pm').value); fd.append('layer', $('#pl').value); fd.append('infill', $('#pi').value);
-  fd.append('copies', $('#pc').value); fd.append('supports', $('#ps').checked); fd.append('printer_id', $('#pp').value);
+  fd.append('copies', $('#pc').value); fd.append('supports', $('#ps').checked); if (me.is_admin) fd.append('printer_id', $('#pp').value);
   if (mode === 'csd') { fd.append('project_id', $('#cp').value); fd.append('part_name', $('#cn').value); fd.append('description', $('#cd').value); }
   bill = await api('/api/jobs', fd, true);
   const csd = bill.user_type === 'csd', q = csd ? null : await api(`/api/jobs/${bill.id}/qr`);
@@ -190,7 +191,7 @@ window.studio = run(async id => {
   const r = await fetch(`/api/admin/jobs/${id}/project`);
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Could not prepare the file');
   const cd = r.headers.get('Content-Disposition') || '';
-  const name = decodeURIComponent(/filename\*=UTF-8''([^;]+)/.exec(cd)?.[1] || '') || /filename="([^"]+)"/.exec(cd)?.[1] || `PrintLab-${id}.3mf`;
+  const name = decodeURIComponent(/filename\*=UTF-8''([^;]+)/.exec(cd)?.[1] || '') || /filename="([^"]+)"/.exec(cd)?.[1] || `PrintLab-${id}`;
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await r.blob()), download: name });
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   toast('Downloaded. Open it in Bambu Studio, set it up and press Print. The job turns to Printing on its own.');

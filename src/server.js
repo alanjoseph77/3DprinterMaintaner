@@ -10,6 +10,7 @@ const slice = require('./slice');
 const driver = require('./printer');
 const bambu = require('./bambu');
 const { MATERIALS, BUILD_LIMIT, parseStl, checkParams, estimate } = require('./estimate');
+const { preview } = require('./preview');
 
 fs.mkdirSync('uploads', { recursive: true });
 const upload = multer({ dest: 'uploads/', limits: { fileSize: 100 * 1024 * 1024 } });
@@ -52,7 +53,7 @@ app.post('/api/logout', (req, res) => { const t = /token=([^;]+)/.exec(req.heade
 app.get('/api/me', (req, res) => res.json(pub(req.user)));
 
 // ---- printers / settings ----
-app.get('/api/printers', auth, (req, res) => res.json(db.prepare(`
+app.get('/api/printers', auth, admin, (req, res) => res.json(db.prepare(`
   SELECT p.id,p.name,p.status,p.ip,p.serial,(p.access_code IS NOT NULL AND p.access_code<>'') has_code,
     (SELECT COUNT(*) FROM jobs j WHERE j.printer_id=p.id AND j.status IN ('queued','printing')) queue FROM printers p`).all()
   .map(p => ({ ...p, ip: req.user.is_admin ? p.ip : undefined, serial: req.user.is_admin ? p.serial : undefined, live: bambu.info(p.id) }))));
@@ -97,10 +98,13 @@ app.post('/api/jobs', auth, upload.single('file'), wrap((req, res) => {
     }
     let info, geo = null;
     if (/\.3mf$/i.test(f.originalname)) info = slice(f.path, f.originalname);
-    else { geo = parseStl(fs.readFileSync(f.path)); info = { ...estimate(geo, p), exact: 0 }; }
+    else {
+      const stl = fs.readFileSync(f.path); geo = parseStl(stl); info = { ...estimate(geo, p), exact: 0 };
+      try { info.thumb = preview(stl); } catch {}   // a missing picture must never block the request
+    }
     const s = settings(), lim = +s.csd_gram_limit;
     if (mode === 'csd' && lim && info.grams > lim) throw new Error(`CSD jobs are limited to ${lim} g`);
-    const printer = db.prepare('SELECT * FROM printers WHERE id=?').get(req.body.printer_id) ||
+    const printer = (req.user.is_admin && db.prepare('SELECT * FROM printers WHERE id=?').get(req.body.printer_id)) ||   // users get the least busy printer; the admin picks the real one at review
       db.prepare(`SELECT p.* FROM printers p ORDER BY (SELECT COUNT(*) FROM jobs j WHERE j.printer_id=p.id AND j.status IN ('queued','printing')) LIMIT 1`).get();
     const cost = Math.round(price(info.grams, info.minutes, s));   // CSD projects see the cost but are not charged
     const r = db.prepare(`INSERT INTO jobs(user_id,printer_id,file_name,file_path,grams,minutes,exact,price,user_type,status,material,layer,infill,supports,copies,geo,project_id,part_name,description)
@@ -121,10 +125,9 @@ const mine = (req, res, next) => {
 };
 const setStatus = (id, st, extra = '') => db.prepare(`UPDATE jobs SET status=?${extra} WHERE id=?`).run(st, id);
 
-// pictures: lab-wide for prints that are running/finished, owner/admin only before that
+// pictures: the job's owner and admins only
 app.get('/api/jobs/:id/thumb', auth, (req, res) => {
-  const j = db.prepare("SELECT id FROM jobs WHERE id=? AND status IN ('queued','printing','done','failed')").get(req.params.id) ||
-    db.prepare('SELECT id FROM jobs WHERE id=? AND (user_id=? OR ?=1)').get(req.params.id, req.user.id, req.user.is_admin ? 1 : 0);
+  const j = db.prepare('SELECT id FROM jobs WHERE id=? AND (user_id=? OR ?=1)').get(req.params.id, req.user.id, req.user.is_admin ? 1 : 0);
   const f = j && `uploads/thumb_${j.id}.png`;
   if (!f || !fs.existsSync(f)) return res.status(404).end();
   res.set('Cache-Control', 'private, max-age=86400'); res.sendFile(require('node:path').resolve(f));
@@ -179,7 +182,7 @@ app.get('/api/jobs', auth, (req, res) => res.json(db.prepare(`${JOBS} WHERE j.us
 
 // ---- admin ----
 // lab-wide log of everything the printers actually ran (site jobs + direct prints)
-app.get('/api/printer-log', auth, (_req, res) => res.json(db.prepare(`${JOBS} WHERE j.status IN ('printing','done','failed') ORDER BY COALESCE(j.started,j.created) DESC LIMIT 300`).all()
+app.get('/api/printer-log', auth, admin, (_req, res) => res.json(db.prepare(`${JOBS} WHERE j.status IN ('printing','done','failed') ORDER BY COALESCE(j.started,j.created) DESC LIMIT 300`).all()
   .map(({ email, txn_id, paid_amount, price, ...j }) => j)));
 app.get('/api/admin/jobs', auth, admin, (_req, res) => res.json(db.prepare(`${JOBS} WHERE j.status<>'quoted' ORDER BY j.id DESC`).all()));
 app.get('/api/admin/users', auth, admin, (_req, res) => res.json(db.prepare('SELECT id,name,email,type,is_admin FROM users ORDER BY id').all()));

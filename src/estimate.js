@@ -4,7 +4,7 @@ const MATERIALS = {            // density g/cm3, effective volumetric speed mm3/
 };
 const BUILD_LIMIT = 256;       // mm, P1S / P2S build plate edge
 
-function parseStl(buf) {
+function triangles(buf) {   // binary or ASCII STL -> [[x1,y1,z1,x2,y2,z2,x3,y3,z3], ...]
   const tri = [];
   if (buf.length >= 84 && buf.length === 84 + 50 * buf.readUInt32LE(80)) {
     for (let i = 0, n = buf.readUInt32LE(80); i < n; i++) {
@@ -17,6 +17,11 @@ function parseStl(buf) {
     for (let i = 0; i + 2 < p.length; i += 3) tri.push([...p[i], ...p[i + 1], ...p[i + 2]]);
   }
   if (!tri.length) throw new Error('Could not read this STL file.');
+  return tri;
+}
+
+function parseStl(buf) {
+  const tri = triangles(buf);
   let vol = 0, area = 0; const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
   for (const [a, b, c, d, e, f, g, h, i] of tri) {
     vol += (a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)) / 6;
@@ -53,4 +58,4 @@ function estimate(geo, p) {
     minutes: ((vol / m.flow + layers * 6) * p.copies) / 60,
   };
 }
-module.exports = { MATERIALS, BUILD_LIMIT, parseStl, checkParams, estimate };
+module.exports = { MATERIALS, BUILD_LIMIT, triangles, parseStl, checkParams, estimate };
