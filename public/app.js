@@ -114,7 +114,7 @@ async function printView() {
   if (!mode) return;
   const [printers, s, o, projects] = await Promise.all([api('/api/printers'), api('/api/settings'), api('/api/options'), api('/api/projects')]);
   $('#step2').innerHTML = `<div class="card"><div class="ch"><span class="num">2</span><h2>Upload the part and set print parameters</h2></div>
-    ${mode === 'csd' ? `<div class="fields">${field('Project', `<select id="cp">${projects.length ? projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('') : '<option value="">No projects yet - ask an admin to add one</option>'}</select>`)}
+    ${mode === 'csd' ? `<div class="fields">${field('Project', `<select id="cp">${projects.length ? projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('') : `<option value="">${me.is_admin ? 'No projects yet - add one under Admin > CSD projects' : 'No projects yet - ask an admin to add one'}</option>`}</select>`)}
       ${field('Part name', '<input id="cn" maxlength="120" placeholder="e.g. Sensor bracket">')}</div>
       <div class="fields" style="grid-template-columns:1fr">${field('Description', '<textarea id="cd" rows="2" maxlength="1000" placeholder="Describe the part and what it is for"></textarea>')}</div>` : ''}
     <label class="drop"><input type="file" id="f" accept=".stl,.3mf" hidden onchange="$('#fn').textContent=this.files[0]?this.files[0].name:'Choose your .stl file';$('.dz').classList.toggle('on',!!this.files[0])">

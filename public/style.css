@@ -1,7 +1,5 @@
-:root{--bg:#f5f6fa;--card:#fff;--ink:#141a2a;--mute:#667085;--line:#e4e7ec;--acc:#4f46e5;--acc-ink:#fff;--acc-soft:#eef0ff;
-  --ok:#12805c;--ok-soft:#e5f6ee;--bad:#c0352b;--bad-soft:#fdecea;--warn:#a85a07;--warn-soft:#fff3dc;--shadow:0 1px 2px #1018280d,0 6px 18px #1018280a;--r:14px}
-@media(prefers-color-scheme:dark){:root{--bg:#0d1017;--card:#151a25;--ink:#e8ebf3;--mute:#97a0b4;--line:#252c3a;--acc:#8087ff;--acc-ink:#0d1017;--acc-soft:#1f2347;
-  --ok:#3ecf9a;--ok-soft:#10312a;--bad:#ff7b72;--bad-soft:#3a1b1a;--warn:#f0b35a;--warn-soft:#3a2c12;--shadow:0 1px 2px #0006}}
+:root{--bg:#f4f5f7;--card:#fff;--ink:#1f2328;--mute:#68707c;--line:#e3e5e9;--acc:#2a2e35;--acc-ink:#fff;--acc-soft:#eceef1;
+  --ok:#12805c;--ok-soft:#e5f6ee;--bad:#c0352b;--bad-soft:#fdecea;--warn:#a85a07;--warn-soft:#fff3dc;--shadow:0 1px 2px #1f23280a,0 6px 18px #1f23280a;--r:14px;color-scheme:light}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 h1,h2,h3{margin:0;line-height:1.25}h2{font-size:16px}p{margin:0 0 10px}a{color:var(--acc)}code{background:var(--bg);padding:1px 5px;border-radius:5px}
@@ -125,3 +123,14 @@ td.act{white-space:nowrap}td.act button{margin:2px 4px 2px 0}
 [hidden]{display:none!important}
 td[data-label="When"],td[data-label="Started"],td[data-label="Request"]{white-space:nowrap}
 #view{max-width:1240px}
+
+/* white + charcoal theme */
+.side{background:#23272e;border-right:0}.side .brand{color:#fff}.side .brand .ic{color:#fff}
+.side .nav{color:#aab1bc}.side .nav:hover{background:#2e333b;color:#fff}.side .nav.on{background:#3b414b;color:#fff}
+.top{background:var(--card);border-bottom:1px solid var(--line)}.top .brand{color:var(--ink)}.top .brand .ic{color:var(--ink)}
+.brand .ic,.ch .ic,.choice .ic,.dz .ic{color:var(--acc)}
+.tabbar .nav.on{background:var(--acc-soft);color:var(--ink)}
+.avatar{background:var(--acc);color:#fff}
+.badge.printing{background:#e8f0ff;color:#2457c5}.badge.queued{background:#e8f0ff;color:#2457c5}
+.pill{background:var(--acc-soft);color:var(--ink)}
+#view{padding-top:20px}@media(max-width:860px){#view{padding-top:14px}}
